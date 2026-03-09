@@ -1,0 +1,22 @@
+# skill-issue
+
+AI agent skills for software development workflows. Built and maintained by [Crown Dev Studios](https://crown.dev).
+
+## What's in here
+
+These are first-party skills we use to keep our engineering standards high and our feedback loops tight.
+
+| Skill | What it does |
+|---|---|
+| [testing-philosophy](skills/testing-philosophy/) | Enforces our testing principles — what to test, how to structure tests, and when to push back on coverage theater |
+| [second-opinion](skills/second-opinion/) | Asks a different AI agent for a second take on the current thread. Routes to Claude from Codex and Codex from Claude |
+| [review-council](skills/review-council/) | Runs parallel code reviews, then synthesizes and ranks the feedback to surface what actually matters |
+
+## Getting started
+
+Each skill lives in its own directory under `skills/` with a `SKILL.md` that contains everything the agent needs.
+
+## License
+
+MIT
+
