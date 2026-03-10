@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+out/
+dist/
+*.tgz
+
+# code coverage
+coverage/
+*.lcov
+
+# logs
+logs/
+*.log
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# dotenv
+.env
+.env.*.local
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
+
+# review output
+.reviews/
+docs/reviews/
+
+# editor / OS
+.idea/
+.DS_Store
+
+# local settings (user-specific)
+.claude/settings.local.json
+**/.claude/settings.local.json

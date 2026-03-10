@@ -1,0 +1,19 @@
+{
+  "name": "second-opinion-skill",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "second-opinion": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "pretest": "pnpm build",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0"
+  }
+}

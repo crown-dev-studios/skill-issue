@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Review Council Judge Verdict",
+  "type": "object",
+  "required": [
+    "target",
+    "generated_at",
+    "overall_verdict",
+    "summary_markdown",
+    "confirmed_findings",
+    "contested_findings",
+    "rejected_findings",
+    "todo_recommendations"
+  ],
+  "properties": {
+    "target": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "overall_verdict": {
+      "type": "string",
+      "enum": [
+        "approve",
+        "needs-fixes",
+        "blocked",
+        "incomplete"
+      ]
+    },
+    "summary_markdown": {
+      "type": "string"
+    },
+    "confirmed_findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/verdictFinding"
+      }
+    },
+    "contested_findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/verdictFinding"
+      }
+    },
+    "rejected_findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/verdictFinding"
+      }
+    },
+    "todo_recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "title",
+          "priority",
+          "reason"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "p1",
+              "p2",
+              "p3"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "verdictFinding": {
+      "type": "object",
+      "required": [
+        "title",
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "confirmed",
+            "contested",
+            "rejected"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "reviewer_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "final_priority": {
+          "type": "string",
+          "enum": [
+            "p1",
+            "p2",
+            "p3"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

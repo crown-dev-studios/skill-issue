@@ -1,0 +1,22 @@
+{
+  "name": "review-council-skill",
+  "private": true,
+  "packageManager": "pnpm@10.30.3",
+  "type": "module",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=10.30.3"
+  },
+  "scripts": {
+    "preinstall": "node scripts/enforce-pnpm.js",
+    "review-council:orchestrate": "tsx scripts/orchestrate-review-council.ts",
+    "review-council:render": "tsx scripts/render-review-html.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx/esm --test scripts/validate-schema.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}

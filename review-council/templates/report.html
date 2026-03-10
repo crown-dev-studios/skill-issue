@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>__TITLE__</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f2ea;
+        --surface: #fffdfa;
+        --surface-2: #f1e7d8;
+        --ink: #1f1a17;
+        --muted: #6f6258;
+        --line: #d9c5ab;
+        --accent: #9c4f21;
+        --accent-soft: #f0d5bf;
+        --good: #2d6a4f;
+        --warn: #9a6b00;
+        --bad: #9f2f2f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(156, 79, 33, 0.12), transparent 28%),
+          linear-gradient(180deg, #fbf7f1 0%, var(--bg) 100%);
+      }
+
+      main {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 32px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0 0 12px;
+        line-height: 1.1;
+      }
+
+      p,
+      li,
+      td,
+      th,
+      pre {
+        font-size: 15px;
+      }
+
+      .hero {
+        display: grid;
+        gap: 16px;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: rgba(255, 253, 250, 0.92);
+        box-shadow: 0 24px 48px rgba(68, 43, 24, 0.08);
+      }
+
+      .meta {
+        color: var(--muted);
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--surface-2);
+        font-size: 13px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 20px;
+        margin-top: 24px;
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      }
+
+      .grid.three {
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
+
+      .card {
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--surface);
+      }
+
+      .card h2 {
+        font-size: 22px;
+      }
+
+      .status-grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .status-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: #fbf7f1;
+        border: 1px solid var(--line);
+      }
+
+      .status-row strong {
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .status-success {
+        color: var(--good);
+      }
+
+      .status-failed {
+        color: var(--bad);
+      }
+
+      .status-pending {
+        color: var(--warn);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .severity {
+        font-weight: 700;
+      }
+
+      .severity.p1 {
+        color: var(--bad);
+      }
+
+      .severity.p2 {
+        color: var(--warn);
+      }
+
+      .severity.p3 {
+        color: var(--good);
+      }
+
+      pre {
+        margin: 0;
+        padding: 16px;
+        border-radius: 14px;
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        background: #faf4ec;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .empty {
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      .status-details {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      .diagnostic-block {
+        padding: 14px;
+        border: 1px solid var(--bad);
+        border-radius: 14px;
+        background: #fdf2f2;
+        margin-bottom: 12px;
+      }
+
+      .diagnostic-block h3 {
+        color: var(--bad);
+        text-transform: uppercase;
+        font-size: 14px;
+        letter-spacing: 0.04em;
+      }
+
+      .stderr-excerpt {
+        font-size: 13px;
+        background: #fff0f0;
+        border-color: var(--bad);
+        max-height: 300px;
+        overflow-y: auto;
+      }
+
+      .log-paths {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-top: 8px;
+      }
+
+      .log-paths code {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      @media (max-width: 720px) {
+        main {
+          padding: 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div>
+          <h1>__HEADING__</h1>
+          <p class="meta">__META__</p>
+        </div>
+        <div class="chips">__CHIPS__</div>
+      </section>
+
+      <section class="grid two">
+        <article class="card">
+          <h2>Judge Summary</h2>
+          <pre>__JUDGE_SUMMARY__</pre>
+        </article>
+        <article class="card">
+          <h2>Stage Status</h2>
+          <div class="status-grid">__STATUS_ROWS__</div>
+        </article>
+      </section>
+
+      <section class="grid" style="display: __DIAGNOSTICS_DISPLAY__">
+        <article class="card">
+          <h2>Diagnostics</h2>
+          __DIAGNOSTICS_CONTENT__
+        </article>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Candidate Findings</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Reviewer</th>
+                <th>Severity</th>
+                <th>Title</th>
+                <th>Confidence</th>
+                <th>Files</th>
+              </tr>
+            </thead>
+            <tbody>__CANDIDATE_ROWS__</tbody>
+          </table>
+        </article>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Judge Verdict</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Title</th>
+                <th>Reason</th>
+                <th>Priority</th>
+              </tr>
+            </thead>
+            <tbody>__VERDICT_ROWS__</tbody>
+          </table>
+        </article>
+      </section>
+
+      <section class="grid two">
+        <article class="card">
+          <h2>Claude Report</h2>
+          <pre>__CLAUDE_REPORT__</pre>
+        </article>
+        <article class="card">
+          <h2>Codex Report</h2>
+          <pre>__CODEX_REPORT__</pre>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>
