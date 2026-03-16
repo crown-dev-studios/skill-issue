@@ -120,6 +120,14 @@ graph LR
     A[Service] --> B[Service]
 ```
 
+## Error Handling & Observability
+
+Error conventions for the change. How errors are surfaced, logged, and traced. Includes:
+
+- Fail-fast behavior at boundaries.
+- Structured logging and tracing expectations.
+- Agent-native observability — errors and state must be visible to agents operating on the system.
+
 ## Phases
 
 Ordered implementation steps grouped for incremental execution and validation. Structured along API boundaries and implementation layers.
@@ -161,6 +169,7 @@ Verify each lens against the plan before finalizing. Full enforcement happens po
 - [ ] **Pattern conformity.** No new patterns that cut against the existing codebase without strong justification.
 - [ ] **Type safety.** Typed boundaries preserved or improved.
 - [ ] **Testing philosophy.** Verification plan aligns with testing-philosophy principles.
+- [ ] **Error handling and observability.** Errors fail fast, logging and tracing are explicit, state is visible to agents.
 
 ## Constraints On This Skill
 
