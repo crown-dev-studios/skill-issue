@@ -15,6 +15,7 @@ These are first-party skills we use to keep our engineering standards high and o
 | [testing-philosophy](testing-philosophy/) | Enforces our testing principles — what to test, how to structure tests, and when to push back on coverage theater |
 | [second-opinion](second-opinion/) | Asks a different AI agent for a second take on the current thread. Routes to Claude from Codex and Codex from Claude |
 | [review-council](review-council/) | Runs parallel code reviews, then synthesizes and ranks the feedback to surface what actually matters |
+| [review-triage](review-triage/) | Classifies and routes review feedback before implementation. Validates findings, assigns severity (P1/P2/P3), and routes to fix now, follow-up ticket, follow-up plan, or dismiss. |
 
 ## Getting started
 
