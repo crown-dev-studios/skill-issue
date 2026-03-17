@@ -8,6 +8,7 @@ These are first-party skills we use to keep our engineering standards high and o
 
 | Skill | What it does |
 |---|---|
+| [architecture-review](architecture-review/) | Reviews plans or implementations for model integrity, service boundaries, and canonical architecture direction using SOLID principles as a lens. |
 | [brainstorming](brainstorming/) | Clarifies what should be built before planning begins. Resolves ambiguity in the problem, outcome, or direction through structured interview and option exploration. |
 | [plan-review](plan-review/) | Challenges and strengthens plans or brainstorms before implementation. Reviews for scope, product framing, sequencing, complexity, testing, operability, error handling, and threat model. |
 | [planning](planning/) | Creates a plan of record that serves as both spec and execution plan. Covers current state, constraints, invariants, model & API boundaries, architecture diagrams, phased execution, and proof strategy. |
