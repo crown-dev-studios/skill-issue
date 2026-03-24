@@ -1,12 +1,12 @@
 ---
 name: second-opinion
-description: Get a second opinion on your current conversation from a different AI model. Routes to Claude from Codex and Codex from Claude.
+description: Get a second opinion on your current conversation from a different AI model. Routes to Claude from Codex and Codex from Claude using a fresh local shell session.
 argument-hint: "[optional review focus]"
 ---
 
 # Second Opinion
 
-Get a second opinion on your current conversation from a different AI model by invoking the other CLI.
+Get a second opinion on your current conversation from a different AI model by invoking the other CLI in a fresh local shell session.
 
 ## When to use
 
@@ -36,15 +36,18 @@ When this skill is invoked:
 2. **Run the review script**:
 
 ```bash
-npx tsx ./src/index.ts --cwd "$PWD" [--focus "REVIEW_FOCUS"]
+npx @crown-dev-studios/second-opinion --cwd "$PWD" --source SOURCE --session-id SESSION_ID [--focus "REVIEW_FOCUS"]
 ```
 
 - The `--focus` flag is only needed if the user specified a custom focus.
-- When this skill runs inside Claude and `${CLAUDE_SESSION_ID}` is available, pass `--source claude --session-id "${CLAUDE_SESSION_ID}"` so Codex reviews the current Claude session deterministically.
-- When this skill runs inside Codex, the review script should use `process.env.CODEX_THREAD_ID` automatically for deterministic Codex session selection.
-- The script auto-detects whether you're in Claude Code or Codex and calls the other CLI.
+- This command requires `@crown-dev-studios/second-opinion` to be resolvable by `npx`. Copying the skill directory alone is not enough.
+- When this skill runs inside Claude, pass `--source claude --session-id "${CLAUDE_SESSION_ID}"` so Codex reviews the current Claude session deterministically.
+- When this skill runs inside Codex, pass `--source codex --session-id "${CODEX_THREAD_ID}"` so Claude reviews the current Codex thread deterministically.
+- The caller must pass both `--source` and `--session-id` explicitly. The CLI does not auto-detect them.
+- The script calls the other CLI in a new local `/bin/zsh -lc` subprocess.
 - It reads the full session file from disk (not affected by context compaction).
-- Timeout is 5 minutes — use `timeout=300000` on the Bash call.
+- Timeout is 5 minutes by default. Override with `--timeout-ms` if needed.
+- For local development from a source checkout, anchor the command to that checkout, for example `pnpm --dir /absolute/path/to/second-opinion start -- --cwd "$PWD"`.
 
 3. **Present the review**: Show the reviewer's output to the user. Add a brief note about which model reviewed it.
 
@@ -52,52 +55,60 @@ npx tsx ./src/index.ts --cwd "$PWD" [--focus "REVIEW_FOCUS"]
 
 The script supports these flags for advanced use:
 
-- `--source claude|codex` — Force source detection (auto-detected by default)
-- `--session-id <id>` — Use an explicit session or thread ID
+- `--source claude|codex` — Source conversation to review
+- `--session-id <id>` — Session or thread ID to review
 - `--reviewer claude|codex` — Force which CLI does the review (defaults to the opposite of source)
-- `--no-thinking` — Exclude chain-of-thought reasoning from the review context
+- `--claude-command <command>` — Override the Claude reviewer command template
+- `--codex-command <command>` — Override the Codex reviewer command template
+- `--timeout-ms <n>` — Reviewer timeout in milliseconds (default: 300000)
+- `--include-thinking` — Include chain-of-thought reasoning in the review context
 - `--extract-only` — Just print the extracted conversation without calling a reviewer
 - `--max-chars N` — Max conversation characters to send (default: 200000)
 
+Command templates support these placeholders:
+
+- `{prompt_file}` — Shell-escaped path to the rendered review prompt file
+- `{cwd}` — Shell-escaped working directory
+- `{reviewer}` — Reviewer name (`claude` or `codex`)
+
+Defaults:
+
+- Claude: `claude -p --disable-slash-commands`
+- Codex: `codex exec --skip-git-repo-check -`
+
+By default the review prompt is written to the reviewer process over stdin. `{prompt_file}` is still available for custom command templates that want a file-backed prompt.
+
+You can also set `SECOND_OPINION_CLAUDE_COMMAND` or `SECOND_OPINION_CODEX_COMMAND` in the environment instead of passing the flags.
+
 ## Deterministic Session Selection
 
-Use the live session ID for the current tool instead of guessing from the newest transcript file.
+The caller must pass the live session ID for the current tool instead of asking the CLI to infer it.
 
 ### Claude
 
 When this skill runs inside Claude, the source transcript must be the current Claude session.
 
-- Use the live Claude session ID provided to the skill as `${CLAUDE_SESSION_ID}` when available.
-- Pass that value explicitly to the review script with `--session-id`.
-- Do not pick the newest file in `~/.claude`.
-- Do not rely on `cwd` alone to identify a Claude session, because multiple Claude sessions can exist for the same directory.
+- Use the live Claude session ID provided to the skill as `${CLAUDE_SESSION_ID}`.
+- Pass that value explicitly to the review script with `--source claude --session-id`.
 - If `${CLAUDE_SESSION_ID}` is unavailable, stop and explain that deterministic Claude transcript selection is not possible in the current environment.
 
 Example:
 
 ```bash
-npx tsx ./src/index.ts --cwd "$PWD" --source claude --session-id "${CLAUDE_SESSION_ID}" [--focus "REVIEW_FOCUS"]
+npx @crown-dev-studios/second-opinion --cwd "$PWD" --source claude --session-id "${CLAUDE_SESSION_ID}" [--focus "REVIEW_FOCUS"]
 ```
 
 ### Codex
 
 When this skill runs inside Codex, the source transcript must be the current Codex thread.
 
-- The review script should read the live Codex session ID from `process.env.CODEX_THREAD_ID`.
-- Prefer that ID over any filesystem or modification-time heuristic.
-- Only fall back to `cwd`-scoped lookup if `CODEX_THREAD_ID` is unavailable.
+- Use the live Codex session ID provided to the skill as `${CODEX_THREAD_ID}`.
+- Pass that value explicitly to the review script with `--source codex --session-id`.
+- If `${CODEX_THREAD_ID}` is unavailable, stop and explain that deterministic Codex transcript selection is not possible in the current environment.
 
 ### Implementation Requirements
 
-The review script should resolve sessions in this order:
-
-1. Explicit `--session-id`
-2. Runtime session ID for the active tool
-   - Claude: `${CLAUDE_SESSION_ID}` if available from the skill runtime
-   - Codex: `process.env.CODEX_THREAD_ID`
-3. Tool-specific fallback lookup
-
-If a session ID is available, it is authoritative and must be used for transcript selection.
+The review script should resolve sessions from the explicit `--source` and `--session-id` pair provided by the caller. It must not guess from runtime env vars or modification-time heuristics.
 
 ## How it works
 
@@ -107,7 +118,7 @@ If a session ID is available, it is authoritative and must be used for transcrip
 2. Parses all user messages, assistant responses, chain-of-thought, and tool usage
 3. Strips system prompts, permission blocks, and injection artifacts
 4. Truncates intelligently if the conversation exceeds the context limit (keeps beginning + end)
-5. Sends to the other CLI:
+5. Sends to the other CLI in a fresh local shell session:
    - If in Claude Code → `codex exec` for review
    - If in Codex → `claude -p` for review
 6. Returns the structured review

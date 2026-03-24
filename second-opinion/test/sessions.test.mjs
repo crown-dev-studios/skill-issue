@@ -117,6 +117,42 @@ test("findClaudeSession prefers explicit session ID over newer files", { concurr
   }
 });
 
+test("findCodexSession ignores cwd when an explicit session ID is provided", { concurrency: false }, async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "second-opinion-codex-id-any-cwd-"));
+  const previousHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    const expected = await writeCodexSession(
+      homeDir,
+      "2026/03/09/rollout-2026-03-09T16-24-39-target-session.jsonl",
+      "target-session",
+      "/repo",
+      100
+    );
+
+    const session = await findCodexSession({ cwd: "/different", sessionId: "target-session" });
+    assert.equal(session?.path, expected);
+  } finally {
+    process.env.HOME = previousHome;
+  }
+});
+
+test("findClaudeSession ignores cwd when an explicit session ID is provided", { concurrency: false }, async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "second-opinion-claude-id-any-cwd-"));
+  const previousHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    const expected = await writeClaudeSession(homeDir, "/repo", "target-session", 100);
+
+    const session = await findClaudeSession({ cwd: "/different", sessionId: "target-session" });
+    assert.equal(session?.path, expected);
+  } finally {
+    process.env.HOME = previousHome;
+  }
+});
+
 test("parseClaudeSession skips Claude local-command wrapper messages", { concurrency: false }, async () => {
   const dir = await mkdtemp(join(tmpdir(), "second-opinion-claude-parse-"));
   const filepath = join(dir, "session.jsonl");

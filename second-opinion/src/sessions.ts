@@ -128,12 +128,9 @@ export async function findClaudeSession({
       if (directMatch) return directMatch;
     }
 
-    return findNewestJsonl(projectsDir, async (filepath, entryName) => {
+    return findNewestJsonl(projectsDir, async (_filepath, entryName) => {
       if (entryName !== `${sessionId}.jsonl`) return false;
-      if (!cwd) return true;
-
-      const meta = await readClaudeSessionMeta(filepath);
-      return meta?.cwd === cwd;
+      return true;
     });
   }
 
@@ -152,9 +149,7 @@ export async function findCodexSession({
   if (sessionId) {
     const match = await findNewestJsonl(sessionsDir, async (filepath) => {
       const meta = await readCodexSessionMeta(filepath);
-      if (!meta || meta.sessionId !== sessionId) return false;
-      if (!cwd) return true;
-      return meta.cwd === cwd;
+      return meta?.sessionId === sessionId;
     });
     if (match) return match;
   }
