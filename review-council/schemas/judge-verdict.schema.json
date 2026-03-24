@@ -3,6 +3,8 @@
   "title": "Review Council Judge Verdict",
   "type": "object",
   "required": [
+    "review_id",
+    "run_id",
     "target",
     "generated_at",
     "overall_verdict",
@@ -13,6 +15,12 @@
     "todo_recommendations"
   ],
   "properties": {
+    "review_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
     "target": {
       "type": "string"
     },

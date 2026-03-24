@@ -1,22 +1,48 @@
 {
-  "name": "review-council-skill",
-  "private": true,
+  "name": "@crown-dev-studios/review-council",
+  "version": "0.1.0",
+  "description": "Parallel multi-agent code review orchestration with bundled prompts, schemas, and HTML reporting.",
   "packageManager": "pnpm@10.30.3",
   "type": "module",
+  "bin": {
+    "review-council": "./dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "templates/",
+    "schemas/",
+    "references/",
+    "README.md",
+    "SKILL.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
   "engines": {
-    "node": ">=20",
-    "pnpm": ">=10.30.3"
+    "node": ">=20"
   },
   "scripts": {
-    "preinstall": "node scripts/enforce-pnpm.js",
-    "review-council:orchestrate": "tsx scripts/orchestrate-review-council.ts",
-    "review-council:render": "tsx scripts/render-review-html.ts",
-    "typecheck": "tsc --noEmit",
-    "test": "node --import tsx/esm --test scripts/validate-schema.test.ts"
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "pack:dry-run": "npm_config_cache=.npm-cache npm pack --dry-run --json",
+    "review-council:orchestrate": "tsx src/cli.ts",
+    "review-council:render": "tsx src/render-review-html.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:unit": "node --import tsx/esm --test test/*.test.ts",
+    "test:package": "node --test test/package-smoke.test.mjs",
+    "test": "pnpm run typecheck && pnpm run test:unit && pnpm run test:package",
+    "verify:package": "pnpm run pack:dry-run && pnpm run test:package",
+    "release:manual": "bash scripts/prepare-release.sh"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^24",
     "tsx": "^4",
     "typescript": "^5"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.1",
+    "zod": "^4.3.5"
   }
 }

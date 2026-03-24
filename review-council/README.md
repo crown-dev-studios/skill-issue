@@ -1,6 +1,6 @@
 # Review Council
 
-Review Council is a small standalone skill repo for multi-agent code review orchestration. It runs Claude, Codex, or other local reviewer CLIs against the same target, collects raw artifacts, runs a judge pass, and renders a static review bundle.
+Review Council is a package-first CLI for multi-agent code review orchestration. It runs Claude, Codex, or other local reviewer CLIs against the same target, collects raw artifacts, runs a judge pass, and renders a static review bundle.
 
 Use it when you want:
 
@@ -23,25 +23,24 @@ The orchestrator handles the happy path and common failure modes:
 ## Requirements
 
 - Node.js 20+
-- `pnpm` 10.30.3+
 - `claude` and/or `codex` on `PATH`
 - a Git working tree to review
+- reviewer CLIs authenticated and able to run non-interactively when possible
 
 ## Install
 
+Run it directly:
+
 ```bash
-cd ~/src/review-council
-pnpm install
-pnpm typecheck
+npx @crown-dev-studios/review-council --help
 ```
 
-The repo is now configured to reject `npm install` and `yarn install` via a `preinstall` guard, `packageManager`, and `engines.pnpm`.
-
-Optional: install it as a slash-invocable skill by copying or symlinking this directory:
+Other package install paths:
 
 ```bash
-cp -R ~/src/review-council ~/.claude/skills/review-council
-cp -R ~/src/review-council ~/.codex/skills/review-council
+pnpm dlx @crown-dev-studios/review-council --help
+npm install -g @crown-dev-studios/review-council
+review-council --help
 ```
 
 ## Quick Start
@@ -49,17 +48,15 @@ cp -R ~/src/review-council ~/.codex/skills/review-council
 From the project root you want to review:
 
 ```bash
-~/src/review-council/node_modules/.bin/tsx \
-  ~/src/review-council/scripts/orchestrate-review-council.ts \
+npx @crown-dev-studios/review-council \
   --target "staged changes" \
-  --claude-command 'claude -p "$(cat {claude_dir}/claude-review-export.md)"' \
-  --codex-command 'codex exec -C {codex_worktree} -o {codex_dir}/last-message.txt "$(cat {codex_dir}/codex-review-export.md)"' \
-  --judge-command 'claude -p "$(cat {judge_dir}/judge.md)"'
+  --review-id staged-changes-review \
+  --claude-command 'claude -p --disable-slash-commands --permission-mode acceptEdits "$(cat "$CLAUDE_DIR/claude-review-export.md")" < /dev/null' \
+  --codex-command 'codex exec --sandbox workspace-write -o "$CODEX_DIR/last-message.txt" "$(cat "$CODEX_DIR/codex-review-export.md")"' \
+  --judge-command 'codex exec --sandbox workspace-write -o "$JUDGE_DIR/last-message.txt" "$(cat "$JUDGE_DIR/judge.md")"'
 ```
 
-That writes a run bundle under `docs/reviews/<timestamp>-review-council/` in the project being reviewed.
-
-Install dependencies with `pnpm`, but invoke the `review-council` repo's own `tsx` binary when reviewing another project so `process.cwd()` stays anchored to the project under review.
+That writes a run bundle under `docs/reviews/<review-id>/runs/<run-id>/` in the project being reviewed. Pass `--review-id` explicitly when you want the same review to be easy to correlate across reruns.
 
 Main outputs:
 
@@ -68,16 +65,31 @@ Main outputs:
 - `bundle.json`
 - `index.html`
 
+## Skill Install
+
+Optional: install it as a slash-invocable skill by copying or symlinking this directory:
+
+```bash
+cp -R ~/src/review-council ~/.claude/skills/review-council
+cp -R ~/src/review-council ~/.codex/skills/review-council
+```
+
+The skill docs and the published package describe the same runtime: invoke `npx @crown-dev-studios/review-council ...` from the repo you want to review so outputs stay rooted in that caller repo.
+
 ## CLI Options
 
 ```
 --target <target>                 Review target label (required)
+--review-id <id>                  Stable review identifier
 --run-dir <dir>                   Output directory for this run
+--review-profile <id>             Reviewer prompt profile (default: default)
+--judge-profile <id>              Judge prompt profile (default: default)
+--claude-prompt-template <path>   Override Claude reviewer prompt template
+--codex-prompt-template <path>    Override Codex reviewer prompt template
+--judge-prompt-template <path>    Override judge prompt template
 --claude-command <command>        Shell command for the Claude reviewer
 --codex-command <command>         Shell command for the Codex reviewer
 --judge-command <command>         Shell command for the judge stage
---claude-worktree <dir>           Claude worktree or cwd
---codex-worktree <dir>            Codex worktree or cwd
 --allow-missing-sentinel          Treat exit code 0 as success without done.json
 --skip-judge                      Skip the judge stage
 --skip-html                       Skip HTML rendering
@@ -86,10 +98,14 @@ Main outputs:
 --retries <n>                     Max retries per stage on failure (default: 2)
 ```
 
-## Operational Rules
+## Operating Notes
 
 - Use non-interactive reviewer commands when possible. Interactive prompts are detected and relayed to the user, but explicit non-interactive mode is more reliable.
+- Use `claude -p --disable-slash-commands --permission-mode acceptEdits ... < /dev/null` for Claude reviewer runs. This keeps the run in headless mode, disables skills, allows artifact writes into the stage directory without interactive approval prompts, and prevents Claude from waiting on stdin during fully non-interactive runs.
+- Codex reviewer and judge commands must run with a writable sandbox, for example `codex exec --sandbox workspace-write ...`, because they need to write review artifacts into the run directory.
+- `--skip-judge` disables judge prompt rendering, judge command validation, and judge execution.
 - Keep reviewer artifacts inside the run directory.
+- Every reviewer and judge JSON artifact should carry the same `review_id` and `run_id` as `run.json`.
 - Do not create authoritative files in `todos/` during raw review.
 - If you reuse `workflows-review`, run each reviewer in a separate worktree.
 
@@ -102,16 +118,53 @@ If a run fails or stalls, inspect:
 - `<run>/judge/status.json`
 - each stage's `stdout.log` and `stderr.log`
 
-The `status.json` for each stage includes `exit_code`, `timed_out`, `attempts`, `retried`, and `validation_errors` fields. The HTML report surfaces stderr excerpts and validation errors for failed stages in a diagnostics section.
+The `status.json` for each stage includes `review_id`, `run_id`, `exit_code`, `timed_out`, `attempts`, `missing_artifacts`, `failure_reason`, and `validation_errors`. The HTML report surfaces missing artifacts, stderr excerpts, and validation errors for failed stages in a diagnostics section.
 
 If a stage exits `0` but does not write `done.json`, the stage is incomplete and the run should be treated as failed.
+
+## Development
+
+Contributor workflow from a source checkout:
+
+```bash
+cd ~/src/review-council
+pnpm install
+pnpm typecheck
+pnpm test
+```
+
+Package verification:
+
+```bash
+pnpm verify:package
+```
+
+That verification path:
+
+- builds `dist/`
+- inspects `npm pack --dry-run` output with a repo-local npm cache
+- installs the local tarball into a temporary caller repo
+- verifies `review-council --help` and a minimal end-to-end run
+
+First publish and post-publish checks:
+
+```bash
+pnpm release:manual
+npm view @crown-dev-studios/review-council version
+npx @crown-dev-studios/review-council --help
+```
 
 ## Files
 
 - [SKILL.md](SKILL.md)
 - [references/cli-integration.md](references/cli-integration.md)
 - [references/output-contract.md](references/output-contract.md)
-- [scripts/orchestrate-review-council.ts](scripts/orchestrate-review-council.ts)
-- [scripts/render-review-html.ts](scripts/render-review-html.ts)
-- [scripts/interaction-queue.ts](scripts/interaction-queue.ts)
-- [scripts/validate-schema.ts](scripts/validate-schema.ts)
+- [src/cli.ts](src/cli.ts)
+- [src/orchestrate-review-council.ts](src/orchestrate-review-council.ts)
+- [src/render-review-html.ts](src/render-review-html.ts)
+- [src/interaction-queue.ts](src/interaction-queue.ts)
+- [src/review-session.ts](src/review-session.ts)
+- [src/schemas.ts](src/schemas.ts)
+- [src/types.ts](src/types.ts)
+- [test/package-smoke.test.mjs](test/package-smoke.test.mjs)
+- [test/validate-schema.test.ts](test/validate-schema.test.ts)

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Review Council Reviewer Done Sentinel",
+  "type": "object",
+  "required": [
+    "review_id",
+    "run_id",
+    "reviewer",
+    "status",
+    "completed_at",
+    "finding_count"
+  ],
+  "properties": {
+    "review_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "reviewer": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "codex",
+        "other"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "const": "complete"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finding_count": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

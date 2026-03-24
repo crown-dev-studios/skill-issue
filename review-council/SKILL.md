@@ -11,7 +11,7 @@ disable-model-invocation: true
 
 `/review-council` is the manual entrypoint for multi-agent code review orchestration.
 
-This directory is intended to be a standalone skill repo: the prompt templates, schemas, renderer, and orchestrator all live here.
+This directory is intended to be both a standalone skill repo and the source for the published npm package. The prompt templates, schemas, renderer, and orchestrator all live here.
 
 It is intentionally separate from `workflows-review`:
 
@@ -28,7 +28,7 @@ Use this when you want:
 
 ## Prerequisites
 
-- Node.js and pnpm
+- Node.js 20+
 - `claude` and/or `codex` on `PATH` for the stages you want to run
 - A Git working tree to review
 - Reviewer CLIs must already be authenticated and able to run non-interactively
@@ -44,45 +44,57 @@ cp -R ~/src/review-council ~/.claude/skills/review-council
 cp -R ~/src/review-council ~/.codex/skills/review-council
 ```
 
-3. Install the TypeScript runtime dependencies from this directory:
-
-```bash
-cd ~/src/review-council
-pnpm install
-pnpm typecheck
-```
-
-4. Review or customize the command templates in [cli-integration.md](references/cli-integration.md).
+3. Review or customize the command templates in [cli-integration.md](references/cli-integration.md).
 
 No external `/review-export` command is required. The orchestrator renders self-contained prompt files into each stage directory before launching reviewer CLIs.
 
-5. From the project root you want to review, run the orchestrator via this repo's pnpm-installed `tsx`. By default it writes each run under `docs/reviews/<timestamp>-review-council/` in the current project:
+4. From the project root you want to review, run the published CLI. By default it writes each run under `docs/reviews/<review-id>/runs/<run-id>/` in the current project:
 
 ```bash
-~/src/review-council/node_modules/.bin/tsx \
-  ~/src/review-council/scripts/orchestrate-review-council.ts \
+npx @crown-dev-studios/review-council \
   --target "staged changes" \
-  --claude-command 'claude -p "$(cat {claude_dir}/claude-review-export.md)"' \
-  --codex-command 'codex exec -C {codex_worktree} -o {codex_dir}/last-message.txt "$(cat {codex_dir}/codex-review-export.md)"' \
-  --judge-command 'claude -p "$(cat {judge_dir}/judge.md)"' \
+  --review-id staged-changes-review \
+  --claude-command 'claude -p --disable-slash-commands --permission-mode acceptEdits "$(cat "$CLAUDE_DIR/claude-review-export.md")" < /dev/null' \
+  --codex-command 'codex exec --sandbox workspace-write -o "$CODEX_DIR/last-message.txt" "$(cat "$CODEX_DIR/codex-review-export.md")"' \
+  --judge-command 'codex exec --sandbox workspace-write -o "$JUDGE_DIR/last-message.txt" "$(cat "$JUDGE_DIR/judge.md")"' \
   --timeout 300000 \
   --retries 2
 ```
 
 - `--timeout <ms>`: per-stage timeout (default 300000 — 5 minutes). On timeout the process receives SIGTERM, then SIGKILL after a 5-second grace period.
 - `--retries <n>`: max retries per stage on non-timeout failure (default 2). Uses exponential backoff starting at 2 seconds.
+- For Claude reviewer runs, use `claude -p --disable-slash-commands --permission-mode acceptEdits ... < /dev/null`. This keeps the run headless, disables skills, allows artifact writes into the stage directory without interactive approval prompts, and avoids stdin wait warnings.
+- When using Codex for reviewer or judge stages, include `--sandbox workspace-write` so it can write artifacts into the run directory.
+- `--skip-judge` disables judge prompt rendering, judge command validation, and judge execution.
+- Pass `--review-id` explicitly when you want the same review to be easy to correlate across reruns.
+
+If the package is already installed globally, `review-council --target ...` is equivalent.
+
+### Development from a Source Checkout
+
+The packaged CLI is the supported runtime. Contributor workflow remains source-first:
+
+```bash
+cd ~/src/review-council
+pnpm install
+pnpm typecheck
+pnpm test
+pnpm verify:package
+```
 
 This produces:
 
-- `docs/reviews/<timestamp>-review-council/judge/summary.md`
-- `docs/reviews/<timestamp>-review-council/judge/verdict.json`
-- `docs/reviews/<timestamp>-review-council/bundle.json`
-- `docs/reviews/<timestamp>-review-council/index.html`
+- `docs/reviews/<review-id>/runs/<run-id>/judge/summary.md`
+- `docs/reviews/<review-id>/runs/<run-id>/judge/verdict.json`
+- `docs/reviews/<review-id>/runs/<run-id>/bundle.json`
+- `docs/reviews/<review-id>/runs/<run-id>/index.html`
 
 ### Example findings.json
 
 ```json
 {
+  "review_id": "staged-changes-review",
+  "run_id": "20260318-143000123-abc12345",
   "reviewer": "claude",
   "target": "staged changes",
   "generated_at": "2026-03-07T18:30:00Z",
@@ -122,6 +134,8 @@ This produces:
 
 ```json
 {
+  "review_id": "staged-changes-review",
+  "run_id": "20260318-143000123-abc12345",
   "target": "staged changes",
   "generated_at": "2026-03-07T14:30:00Z",
   "overall_verdict": "needs-fixes",
@@ -185,7 +199,7 @@ Its job is to:
 5. Run the judge step
 6. Render HTML
 
-Use the placeholders documented in [cli-integration.md](references/cli-integration.md). Prefer the rendered stage prompt files under `{claude_dir}`, `{codex_dir}`, and `{judge_dir}` over the source templates under `templates/`.
+Use the environment variables documented in [cli-integration.md](references/cli-integration.md). Prefer the rendered stage prompt files under `$CLAUDE_DIR`, `$CODEX_DIR`, and `$JUDGE_DIR` over the source templates under `templates/`.
 
 ### Step 3: Export Raw Reviewer Artifacts
 
@@ -230,7 +244,7 @@ The HTML page should make these easy to scan:
 - Do not run `workflows-review` twice in the same working tree if it will write directly to `todos/`
 - If you must reuse `workflows-review` unchanged, run each reviewer in a separate worktree so each run has its own local `todos/`
 - Keep final todo creation as a later, explicit step owned by the judge or a follow-up workflow
-- Interactive prompts from reviewer CLIs are detected and relayed to the user one at a time; however, explicit non-interactive mode (e.g. `claude -p`) is more reliable than depending on prompt detection
+- Interactive prompts from reviewer CLIs are detected and relayed to the user one at a time; explicit non-interactive commands such as `claude -p --disable-slash-commands --permission-mode acceptEdits < /dev/null` or `codex exec` remain the standard mode for raw review runs
 
 ## Supporting Files
 
@@ -241,5 +255,8 @@ The HTML page should make these easy to scan:
 - Reviewer template: [reviewer-export.md](templates/reviewer-export.md)
 - Judge template: [judge.md](templates/judge.md)
 - HTML template: [report.html](templates/report.html)
+- CLI entrypoint: [src/cli.ts](src/cli.ts)
+- Orchestrator runtime: [src/orchestrate-review-council.ts](src/orchestrate-review-council.ts)
+- Renderer: [src/render-review-html.ts](src/render-review-html.ts)
 - TypeScript package: [package.json](package.json)
 - TypeScript config: [tsconfig.json](tsconfig.json)

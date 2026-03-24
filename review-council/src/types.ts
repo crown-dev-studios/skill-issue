@@ -4,8 +4,6 @@ export interface JsonObject {
   [key: string]: JsonValue;
 }
 
-export type Schema = JsonObject;
-
 export interface ValidationError {
   path: string;
   message: string;

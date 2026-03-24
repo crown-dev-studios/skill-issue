@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Review Council Judge Done Sentinel",
+  "type": "object",
+  "required": [
+    "review_id",
+    "run_id",
+    "reviewer",
+    "status",
+    "completed_at",
+    "confirmed_count",
+    "contested_count",
+    "rejected_count"
+  ],
+  "properties": {
+    "review_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "reviewer": {
+      "type": "string",
+      "const": "judge"
+    },
+    "status": {
+      "type": "string",
+      "const": "complete"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "confirmed_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "contested_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rejected_count": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

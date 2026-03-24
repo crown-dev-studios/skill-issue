@@ -6,6 +6,11 @@ You are the {{REVIEWER_NAME}} reviewer inside Review Council.
 
 {{TARGET}}
 
+## Review Identity
+
+- Review ID: `{{REVIEW_ID}}`
+- Run ID: `{{RUN_ID}}`
+
 ## Artifact Directory
 
 {{ARTIFACT_DIR}}
@@ -16,6 +21,7 @@ You are the {{REVIEWER_NAME}} reviewer inside Review Council.
 - Do not create authoritative files in `todos/`
 - Do not modify code unless explicitly asked elsewhere
 - Keep all raw artifacts inside `{{ARTIFACT_DIR}}`
+- Treat the explicit `review_id` as canonical. Every JSON artifact must include `review_id: "{{REVIEW_ID}}"` and `run_id: "{{RUN_ID}}"`.
 
 ## Required Outputs
 
@@ -32,6 +38,8 @@ You are the {{REVIEWER_NAME}} reviewer inside Review Council.
 
 ```json
 {
+  "review_id": "{{REVIEW_ID}}",
+  "run_id": "{{RUN_ID}}",
   "reviewer": "{{REVIEWER_NAME_LOWER}}",
   "status": "complete",
   "completed_at": "ISO-8601",

@@ -4,12 +4,16 @@ You are the adjudication pass for Review Council.
 
 ## Inputs
 
+- Review ID: `{{REVIEW_ID}}`
+- Run ID: `{{RUN_ID}}`
 - Run directory: `{{RUN_DIR}}`
 - Review target: `{{TARGET}}`
 - Claude report: `{{RUN_DIR}}/claude/report.md`
 - Claude findings: `{{RUN_DIR}}/claude/findings.json`
 - Codex report: `{{RUN_DIR}}/codex/report.md`
 - Codex findings: `{{RUN_DIR}}/codex/findings.json`
+
+If a listed reviewer directory does not exist in this run, that reviewer did not run. Ignore missing reviewer files and adjudicate only the artifacts that are present.
 
 ## Required Outputs
 
@@ -29,11 +33,14 @@ You are the adjudication pass for Review Council.
 - Reject findings that are weak, duplicated, or unsupported
 - Recommend final todos only for confirmed or high-signal contested findings
 - Do not create files in `todos/`
+- Preserve `review_id: "{{REVIEW_ID}}"` and `run_id: "{{RUN_ID}}"` in every JSON artifact you write
 
 ## done.json Shape
 
 ```json
 {
+  "review_id": "{{REVIEW_ID}}",
+  "run_id": "{{RUN_ID}}",
   "reviewer": "judge",
   "status": "complete",
   "completed_at": "ISO-8601",
@@ -42,4 +49,3 @@ You are the adjudication pass for Review Council.
   "rejected_count": 0
 }
 ```
-

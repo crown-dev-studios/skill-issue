@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { JsonValue, JsonObject } from "./types.ts";
+import MarkdownIt from "markdown-it";
+import type { JsonObject, JsonValue } from "./types.js";
 
 interface FindingFileRef {
   path: string;
@@ -29,6 +30,9 @@ interface VerdictFinding {
 type ArtifactStatus = "ok" | "missing" | "malformed";
 
 interface Bundle {
+  review_id: string;
+  run_id: string;
+  review_target: string;
   run: JsonObject;
   candidate_findings: Finding[];
   judge_verdict: JsonObject;
@@ -58,6 +62,19 @@ function htmlEscape(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+const markdownRenderer = new MarkdownIt({
+  html: false,
+  linkify: true,
+  typographer: false,
+});
+
+function renderMarkdown(markdown: string): string {
+  if (!markdown.trim()) {
+    return '<p class="empty">No content yet.</p>';
+  }
+  return markdownRenderer.render(markdown);
+}
+
 function loadJsonWithStatus(path: string): { data: JsonObject; status: ArtifactStatus } {
   if (!existsSync(path)) {
     return { data: {}, status: "missing" };
@@ -81,6 +98,7 @@ function flattenFindings(document: JsonObject, reviewer: string): Finding[] {
   if (!Array.isArray(findings)) {
     return [];
   }
+
   return findings
     .filter((item): item is JsonObject => typeof item === "object" && item !== null && !Array.isArray(item))
     .map((item) => ({ ...item, reviewer }) as Finding);
@@ -100,11 +118,14 @@ function stageStatusRow(name: string, status: JsonObject): string {
     if (status.timed_out === true) {
       details.push("timed out");
     }
-    if (typeof status.attempts === "number" && (status.attempts as number) > 1) {
+    if (typeof status.attempts === "number" && status.attempts > 1) {
       details.push(`${status.attempts} attempts`);
     }
     if (Array.isArray(status.validation_errors) && status.validation_errors.length > 0) {
       details.push(`${status.validation_errors.length} validation error(s)`);
+    }
+    if (Array.isArray(status.missing_artifacts) && status.missing_artifacts.length > 0) {
+      details.push(`${status.missing_artifacts.length} missing artifact(s)`);
     }
   }
 
@@ -125,8 +146,7 @@ function stderrExcerpt(stageDir: string, maxLines: number = 20): string {
   const text = loadText(stderrPath);
   if (!text.trim()) return "";
   const lines = text.split("\n");
-  const tail = lines.slice(-maxLines);
-  return tail.join("\n");
+  return lines.slice(-maxLines).join("\n");
 }
 
 function buildDiagnostics(runDir: string, statuses: Record<string, JsonObject>): string {
@@ -136,39 +156,45 @@ function buildDiagnostics(runDir: string, statuses: Record<string, JsonObject>):
     if (Object.keys(status).length === 0 || status.success === true) continue;
 
     const parts: string[] = [];
-    parts.push(`<div class="diagnostic-block">`);
+    parts.push('<div class="diagnostic-block">');
     parts.push(`<h3>${htmlEscape(stage)}</h3>`);
 
-    // Validation errors
     if (Array.isArray(status.validation_errors)) {
       const errors = status.validation_errors as Array<{ path?: string; message?: string }>;
-      parts.push(`<p><strong>Validation errors:</strong></p><ul>`);
-      for (const err of errors) {
-        const loc = err.path ? `${err.path}: ` : "";
-        parts.push(`<li>${htmlEscape(`${loc}${err.message ?? "unknown"}`)}</li>`);
+      parts.push("<p><strong>Validation errors:</strong></p><ul>");
+      for (const error of errors) {
+        const location = error.path ? `${error.path}: ` : "";
+        parts.push(`<li>${htmlEscape(`${location}${error.message ?? "unknown"}`)}</li>`);
       }
-      parts.push(`</ul>`);
+      parts.push("</ul>");
     }
 
-    // Stderr excerpt
+    if (Array.isArray(status.missing_artifacts) && status.missing_artifacts.length > 0) {
+      const missingArtifacts = status.missing_artifacts as string[];
+      parts.push("<p><strong>Missing artifacts:</strong></p><ul>");
+      for (const artifact of missingArtifacts) {
+        parts.push(`<li>${htmlEscape(artifact)}</li>`);
+      }
+      parts.push("</ul>");
+    }
+
     const stageDir = resolve(runDir, stage);
     const excerpt = stderrExcerpt(stageDir);
     if (excerpt) {
-      parts.push(`<p><strong>stderr (last 20 lines):</strong></p>`);
+      parts.push("<p><strong>stderr (last 20 lines):</strong></p>");
       parts.push(`<pre class="stderr-excerpt">${htmlEscape(excerpt)}</pre>`);
     }
 
-    // Log paths
     const stdoutLog = typeof status.stdout_log === "string" ? status.stdout_log : "";
     const stderrLog = typeof status.stderr_log === "string" ? status.stderr_log : "";
     if (stdoutLog || stderrLog) {
-      parts.push(`<div class="log-paths">`);
+      parts.push('<div class="log-paths">');
       if (stdoutLog) parts.push(`<code>${htmlEscape(stdoutLog)}</code>`);
       if (stderrLog) parts.push(`<code>${htmlEscape(stderrLog)}</code>`);
-      parts.push(`</div>`);
+      parts.push("</div>");
     }
 
-    parts.push(`</div>`);
+    parts.push("</div>");
     blocks.push(parts.join(""));
   }
 
@@ -179,12 +205,13 @@ function filesLabel(files: FindingFileRef[]): string {
   if (files.length === 0) {
     return "-";
   }
-  return files.map((item) => {
-    if (!item.path) {
-      return "?";
-    }
-    return item.line ? `${item.path}:${item.line}` : item.path;
-  }).join(", ");
+
+  return files
+    .map((item) => {
+      if (!item.path) return "?";
+      return item.line ? `${item.path}:${item.line}` : item.path;
+    })
+    .join(", ");
 }
 
 function candidateRow(row: Finding): string {
@@ -209,31 +236,28 @@ function verdictRows(verdict: JsonObject): string {
   ];
 
   for (const [status, value] of groups) {
-    if (!Array.isArray(value)) {
-      continue;
-    }
+    if (!Array.isArray(value)) continue;
+
     for (const item of value) {
       if (typeof item !== "object" || item === null || Array.isArray(item)) {
         continue;
       }
+
       const verdictItem = item as unknown as VerdictFinding;
-      rows.push(
-        [
-          "<tr>",
-          `<td>${htmlEscape(status)}</td>`,
-          `<td>${htmlEscape(String(verdictItem.title ?? "-"))}</td>`,
-          `<td>${htmlEscape(String(verdictItem.reason ?? "-"))}</td>`,
-          `<td>${htmlEscape(String(verdictItem.final_priority ?? "-"))}</td>`,
-          "</tr>",
-        ].join(""),
-      );
+      rows.push([
+        "<tr>",
+        `<td>${htmlEscape(status)}</td>`,
+        `<td>${htmlEscape(String(verdictItem.title ?? "-"))}</td>`,
+        `<td>${htmlEscape(String(verdictItem.reason ?? "-"))}</td>`,
+        `<td>${htmlEscape(String(verdictItem.final_priority ?? "-"))}</td>`,
+        "</tr>",
+      ].join(""));
     }
   }
 
-  if (rows.length) {
-    return rows.join("");
-  }
-  return '<tr><td colspan="4" class="empty">No judge verdict rows yet.</td></tr>';
+  return rows.length > 0
+    ? rows.join("")
+    : '<tr><td colspan="4" class="empty">No judge verdict rows yet.</td></tr>';
 }
 
 function chips(bundle: Bundle): string {
@@ -241,14 +265,16 @@ function chips(bundle: Bundle): string {
   const confirmed = Array.isArray(verdict.confirmed_findings) ? verdict.confirmed_findings.length : 0;
   const contested = Array.isArray(verdict.contested_findings) ? verdict.contested_findings.length : 0;
   const rejected = Array.isArray(verdict.rejected_findings) ? verdict.rejected_findings.length : 0;
-  const items = [
+
+  return [
     `Overall: ${String(verdict.overall_verdict ?? "incomplete")}`,
     `Candidate findings: ${bundle.candidate_findings.length}`,
     `Confirmed: ${confirmed}`,
     `Contested: ${contested}`,
     `Rejected: ${rejected}`,
-  ];
-  return items.map((item) => `<span class="chip">${htmlEscape(item)}</span>`).join("");
+  ]
+    .map((item) => `<span class="chip">${htmlEscape(item)}</span>`)
+    .join("");
 }
 
 export function buildBundle(runDir: string): Bundle {
@@ -257,7 +283,16 @@ export function buildBundle(runDir: string): Bundle {
   const claudeDoc = loadJsonWithStatus(resolve(resolvedRunDir, "claude", "findings.json"));
   const codexDoc = loadJsonWithStatus(resolve(resolvedRunDir, "codex", "findings.json"));
   const judgeDoc = loadJsonWithStatus(resolve(resolvedRunDir, "judge", "verdict.json"));
+  const reviewId = typeof run.data.review_id === "string" ? run.data.review_id : "";
+  const runId = typeof run.data.run_id === "string" ? run.data.run_id : "";
+  const reviewTarget = typeof run.data.review_target === "string"
+    ? run.data.review_target
+    : (typeof run.data.target === "string" ? run.data.target : "-");
+
   return {
+    review_id: reviewId,
+    run_id: runId,
+    review_target: reviewTarget,
     run: run.data,
     candidate_findings: [
       ...flattenFindings(claudeDoc.data, "claude"),
@@ -282,19 +317,17 @@ export function buildBundle(runDir: string): Bundle {
   };
 }
 
-// HTML templates use __UPPER_CASE__ placeholders, replaced at render time.
-// Markdown prompt templates use {{UPPER_CASE}} instead (see orchestrate-review-council.ts).
 export function renderRunDir(runDir: string, templatePath?: string): void {
   const resolvedRunDir = resolve(runDir);
-  const scriptDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
-  const skillDir = resolve(scriptDir, "..");
+  const moduleDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
+  const packageDir = resolve(moduleDir, "..");
   const resolvedTemplatePath = templatePath
     ? resolve(templatePath)
-    : resolve(skillDir, "templates", "report.html");
+    : resolve(packageDir, "templates", "report.html");
   const bundle = buildBundle(resolvedRunDir);
   const template = readFileSync(resolvedTemplatePath, "utf8");
-  const target = typeof bundle.run.target === "string" ? bundle.run.target : "-";
-  const candidateRows = bundle.candidate_findings.length
+  const target = bundle.review_target;
+  const candidateRows = bundle.candidate_findings.length > 0
     ? bundle.candidate_findings.map(candidateRow).join("")
     : '<tr><td colspan="5" class="empty">No candidate findings yet.</td></tr>';
   const statusRows = [
@@ -313,16 +346,16 @@ export function renderRunDir(runDir: string, templatePath?: string): void {
   const replacements: Record<string, string> = {
     "__TITLE__": "Review Council Report",
     "__HEADING__": "Review Council",
-    "__META__": htmlEscape(`Target: ${target}`),
+    "__META__": htmlEscape(`Target: ${target} · Review ID: ${bundle.review_id || "-"} · Run ID: ${bundle.run_id || "-"}`),
     "__CHIPS__": chips(bundle),
-    "__JUDGE_SUMMARY__": htmlEscape(bundle.reports.judge || "Judge output not available yet."),
+    "__JUDGE_SUMMARY__": renderMarkdown(bundle.reports.judge || "Judge output not available yet."),
     "__STATUS_ROWS__": statusRows,
     "__DIAGNOSTICS_DISPLAY__": hasDiagnostics ? "block" : "none",
     "__DIAGNOSTICS_CONTENT__": diagnosticsContent,
     "__CANDIDATE_ROWS__": candidateRows,
     "__VERDICT_ROWS__": verdictRows(bundle.judge_verdict),
-    "__CLAUDE_REPORT__": htmlEscape(bundle.reports.claude || "Claude report not available yet."),
-    "__CODEX_REPORT__": htmlEscape(bundle.reports.codex || "Codex report not available yet."),
+    "__CLAUDE_REPORT__": renderMarkdown(bundle.reports.claude || "Claude report not available yet."),
+    "__CODEX_REPORT__": renderMarkdown(bundle.reports.codex || "Codex report not available yet."),
   };
 
   let htmlOutput = template;
@@ -334,10 +367,10 @@ export function renderRunDir(runDir: string, templatePath?: string): void {
   writeFileSync(resolve(resolvedRunDir, "index.html"), htmlOutput);
 }
 
-function main(): void {
-  const [, , runDir, ...rest] = process.argv;
+export function main(args: string[] = process.argv.slice(2)): void {
+  const [runDir, ...rest] = args;
   if (!runDir || runDir === "--help" || runDir === "-h") {
-    console.log("usage: render-review-html.ts [run_dir] [--template path]");
+    console.log("usage: render-review-html [run_dir] [--template path]");
     process.exit(runDir ? 0 : 1);
   }
 

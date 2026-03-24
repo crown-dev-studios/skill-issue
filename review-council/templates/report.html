@@ -190,6 +190,85 @@
         word-break: break-word;
       }
 
+      .markdown {
+        color: var(--ink);
+      }
+
+      .markdown > :first-child {
+        margin-top: 0;
+      }
+
+      .markdown > :last-child {
+        margin-bottom: 0;
+      }
+
+      .markdown p,
+      .markdown ul,
+      .markdown ol,
+      .markdown blockquote,
+      .markdown pre {
+        margin: 0 0 14px;
+      }
+
+      .markdown ul,
+      .markdown ol {
+        padding-left: 22px;
+      }
+
+      .markdown li + li {
+        margin-top: 8px;
+      }
+
+      .markdown h1,
+      .markdown h2,
+      .markdown h3,
+      .markdown h4,
+      .markdown h5,
+      .markdown h6 {
+        margin: 22px 0 12px;
+        line-height: 1.15;
+      }
+
+      .markdown h1 {
+        font-size: 28px;
+      }
+
+      .markdown h2 {
+        font-size: 22px;
+      }
+
+      .markdown h3 {
+        font-size: 18px;
+      }
+
+      .markdown code {
+        padding: 0.15em 0.4em;
+        border-radius: 6px;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        font-family: "SFMono-Regular", "SF Mono", Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      .markdown pre code {
+        display: block;
+        padding: 0;
+        border: 0;
+        background: transparent;
+      }
+
+      .markdown blockquote {
+        padding: 12px 16px;
+        border-left: 4px solid var(--accent);
+        background: #faf1e7;
+        color: var(--muted);
+        border-radius: 0 12px 12px 0;
+      }
+
+      .markdown a {
+        color: var(--accent);
+      }
+
       .empty {
         color: var(--muted);
         font-style: italic;
@@ -257,7 +336,7 @@
       <section class="grid two">
         <article class="card">
           <h2>Judge Summary</h2>
-          <pre>__JUDGE_SUMMARY__</pre>
+          <div class="markdown">__JUDGE_SUMMARY__</div>
         </article>
         <article class="card">
           <h2>Stage Status</h2>
@@ -310,11 +389,11 @@
       <section class="grid two">
         <article class="card">
           <h2>Claude Report</h2>
-          <pre>__CLAUDE_REPORT__</pre>
+          <div class="markdown">__CLAUDE_REPORT__</div>
         </article>
         <article class="card">
           <h2>Codex Report</h2>
-          <pre>__CODEX_REPORT__</pre>
+          <div class="markdown">__CODEX_REPORT__</div>
         </article>
       </section>
     </main>

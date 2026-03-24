@@ -1,33 +1,36 @@
 # Output Contract
 
-`review-council` writes one run directory per review session:
+`review-council` groups run attempts by review session:
 
 ```text
-docs/reviews/<run-id>/
-  run.json
-  bundle.json
-  index.html
-  claude/
-    report.md
-    findings.json
-    done.json
-    status.json
-    stdout.log
-    stderr.log
-  codex/
-    report.md
-    findings.json
-    done.json
-    status.json
-    stdout.log
-    stderr.log
-  judge/
-    summary.md
-    verdict.json
-    done.json
-    status.json
-    stdout.log
-    stderr.log
+docs/reviews/<review-id>/
+  latest-run.json
+  runs/
+    <run-id>/
+      run.json
+      bundle.json
+      index.html
+      claude/
+        report.md
+        findings.json
+        done.json
+        status.json
+        stdout.log
+        stderr.log
+      codex/
+        report.md
+        findings.json
+        done.json
+        status.json
+        stdout.log
+        stderr.log
+      judge/
+        summary.md
+        verdict.json
+        done.json
+        status.json
+        stdout.log
+        stderr.log
 ```
 
 ## Reviewer Output
@@ -42,6 +45,8 @@ Each reviewer writes:
 
 ```json
 {
+  "review_id": "staged-changes-review",
+  "run_id": "20260318-143000123-abc12345",
   "reviewer": "claude",
   "status": "complete",
   "completed_at": "2026-03-07T18:30:00Z",
@@ -63,6 +68,8 @@ The orchestrator writes `status.json` per stage with these fields:
 
 ```json
 {
+  "review_id": "staged-changes-review",
+  "run_id": "20260318-143000123-abc12345",
   "stage": "claude",
   "command": "claude -p ...",
   "started_at": "2026-03-07T18:25:00Z",
@@ -70,7 +77,11 @@ The orchestrator writes `status.json` per stage with these fields:
   "exit_code": 0,
   "require_sentinel": true,
   "done_file_present": true,
+  "required_artifacts": ["report.md", "findings.json", "done.json"],
+  "artifact_presence": { "report.md": true, "findings.json": true, "done.json": true },
+  "missing_artifacts": [],
   "success": true,
+  "failure_reason": null,
   "timed_out": false,
   "attempts": 1,
   "retried": false,
@@ -79,11 +90,12 @@ The orchestrator writes `status.json` per stage with these fields:
 }
 ```
 
-On validation failure, `status.json` additionally contains:
+On validation failure or missing artifacts, `status.json` additionally contains:
 
 ```json
 {
   "success": false,
+  "failure_reason": "schema_validation_failed",
   "validation_errors": [
     { "path": "findings[0].severity", "message": "value \"critical\" not in enum [\"p1\", \"p2\", \"p3\"]" }
   ]
@@ -98,6 +110,8 @@ Key fields:
 | `timed_out` | boolean | Whether the stage was killed due to timeout. |
 | `attempts` | number | Total attempts (1 = no retries). |
 | `retried` | boolean | Whether the stage was retried at least once. |
+| `missing_artifacts` | array | Required artifacts still missing after the final attempt. |
+| `failure_reason` | string? | `process_failed`, `timeout`, `missing_artifacts`, or `schema_validation_failed`. |
 | `validation_errors` | array? | Schema validation errors if the output JSON was malformed. |
 
 ## Bundle Output
@@ -111,7 +125,10 @@ The HTML renderer writes:
 
 ```json
 {
-  "run": { "target": "...", "created_at": "..." },
+  "review_id": "staged-changes-review",
+  "run_id": "20260318-143000123-abc12345",
+  "review_target": "staged changes",
+  "run": { "review_id": "...", "run_id": "...", "review_target": "...", "created_at": "..." },
   "candidate_findings": [ { "reviewer": "claude", "severity": "p1", "title": "...", "confidence": "high", "files": [] } ],
   "judge_verdict": { "overall_verdict": "needs-fixes", "..." : "..." },
   "status": {

@@ -10,13 +10,13 @@ export interface InteractionRequest {
 
 const queue: InteractionRequest[] = [];
 let processing = false;
-let rl: Interface | null = null;
+let readlineInterface: Interface | null = null;
 
 function getReadline(): Interface {
-  if (!rl) {
-    rl = createInterface({ input: process.stdin, output: process.stdout });
+  if (!readlineInterface) {
+    readlineInterface = createInterface({ input: process.stdin, output: process.stdout });
   }
-  return rl;
+  return readlineInterface;
 }
 
 function processNext(): void {
@@ -26,16 +26,20 @@ function processNext(): void {
   }
 
   processing = true;
-  const request = queue.shift()!;
-  const reader = getReadline();
+  const request = queue.shift();
+  if (!request) {
+    processing = false;
+    return;
+  }
 
+  const reader = getReadline();
   process.stderr.write(`\n[${request.stage}] needs your input:\n${request.prompt}\n`);
 
   reader.question("", (answer) => {
     try {
       request.stdinPipe.write(`${answer}\n`);
     } catch {
-      // pipe may have closed between prompt and response — not fatal
+      // The child process may exit before the response is written.
     }
     request.resolve();
     processNext();
@@ -50,12 +54,12 @@ export function enqueue(request: InteractionRequest): void {
 }
 
 export function close(): void {
-  if (rl) {
-    rl.close();
-    rl = null;
+  if (readlineInterface) {
+    readlineInterface.close();
+    readlineInterface = null;
   }
+
   processing = false;
-  // Resolve any remaining queued requests so callers don't hang
   for (const request of queue.splice(0)) {
     request.resolve();
   }

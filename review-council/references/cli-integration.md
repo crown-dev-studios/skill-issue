@@ -1,30 +1,42 @@
 # CLI Integration
 
-The orchestrator script accepts literal CLI commands with placeholders.
+The orchestrator accepts literal shell commands via `--claude-command`, `--codex-command`, and `--judge-command`. Context values are passed as environment variables to each child process.
 
-Best practice: point reviewer CLIs at the rendered prompt files created inside the run directory. This keeps the command templates self-contained and avoids depending on any external `/review-export` command.
+Point reviewer CLIs at the rendered prompt files created inside the run directory. This keeps the command templates self-contained and avoids depending on any external `/review-export` command.
 
-Available placeholders:
+Pass `--review-id` explicitly when you want run output that is easy to correlate across reruns.
 
-- `{cwd}`
-- `{skill_dir}`
-- `{run_dir}`
-- `{target}`
-- `{claude_dir}`
-- `{codex_dir}`
-- `{judge_dir}`
-- `{claude_worktree}`
-- `{codex_worktree}`
-- `{review_schema}`
-- `{judge_schema}`
+Available environment variables:
+
+- `$CWD`
+- `$SKILL_DIR`
+- `$REVIEW_ID`
+- `$RUN_ID`
+- `$REVIEW_DIR`
+- `$RUN_DIR`
+- `$CLAUDE_DIR`
+- `$CODEX_DIR`
+- `$JUDGE_DIR`
+- `$REVIEW_SCHEMA`
+- `$JUDGE_SCHEMA`
+
+These variables are set in the child process environment. Use standard shell quoting (`"$VAR"`) in command templates.
+
+Review targets are available in the rendered prompt templates, but not as environment variables. Keep target text in prompt files rather than interpolating it into reviewer or judge command strings.
 
 The orchestrator renders these prompt files before launching any stage:
 
-- `{claude_dir}/claude-review-export.md`
-- `{codex_dir}/codex-review-export.md`
-- `{judge_dir}/judge.md`
+- `$CLAUDE_DIR/claude-review-export.md`
+- `$CODEX_DIR/codex-review-export.md`
+- `$JUDGE_DIR/judge.md`
 
-When invoking the orchestrator from the project being reviewed, prefer the standalone skill repo's pnpm-installed `tsx` binary directly. That keeps `process.cwd()` anchored to the project under review, so the default output path lands in `docs/reviews/` for that project.
+When invoking the orchestrator from the project being reviewed, prefer the published package command:
+
+```bash
+npx @crown-dev-studios/review-council --help
+```
+
+If the package is already installed, `review-council --help` is equivalent. Invoking the command from the project under review keeps `process.cwd()` anchored there, so the default output path lands in `docs/reviews/` for that project.
 
 ## Recommended Mode
 
@@ -39,10 +51,13 @@ Reviewer commands should already be authenticated and must not require interacti
 Example:
 
 ```bash
-claude -p "$(cat {claude_dir}/claude-review-export.md)"
+claude -p --disable-slash-commands --permission-mode acceptEdits \
+  "$(cat "$CLAUDE_DIR/claude-review-export.md")" < /dev/null
 ```
 
-If you want Claude to create an isolated Git worktree, add `--worktree <name>` to the Claude command itself. Use `--claude-worktree` only when a custom command template needs a concrete path placeholder.
+Use `--disable-slash-commands --permission-mode acceptEdits` for artifact-writing review flows, and redirect stdin from `/dev/null` when the stage is fully headless. This keeps Claude in print mode, disables skills, allows artifact writes without interactive approval prompts, and avoids stdin wait warnings.
+
+If you want Claude to create an isolated Git worktree, add `--worktree <name>` to the Claude command itself. `review-council` does not own reviewer cwd or worktree paths; that stays inside the raw command you pass.
 
 ### Codex
 
@@ -57,9 +72,11 @@ For exact staged-only review, prefer `codex exec` with an explicit prompt.
 Example:
 
 ```bash
-codex exec -C {codex_worktree} -o {codex_dir}/last-message.txt \
-  "$(cat {codex_dir}/codex-review-export.md)"
+codex exec --sandbox workspace-write -o "$CODEX_DIR/last-message.txt" \
+  "$(cat "$CODEX_DIR/codex-review-export.md")"
 ```
+
+Codex reviewer and judge commands must run with a writable sandbox because they need to write artifacts into the stage directory.
 
 ## Minimal-Change Mode
 
@@ -76,14 +93,12 @@ This works, but the cleaner long-term shape is export-only reviewer artifacts pl
 ## Orchestrator Example
 
 ```bash
-~/src/review-council/node_modules/.bin/tsx \
-  ~/src/review-council/scripts/orchestrate-review-council.ts \
+npx @crown-dev-studios/review-council \
   --target "branch main..feature/review-council" \
-  --run-dir "$PWD/docs/reviews/20260307-183000-review-council" \
-  --codex-worktree .worktrees/review-council-codex \
-  --claude-command 'claude -p --worktree review-council-claude "$(cat {claude_dir}/claude-review-export.md)"' \
-  --codex-command 'codex exec -C {codex_worktree} -o {codex_dir}/last-message.txt "$(cat {codex_dir}/codex-review-export.md)"' \
-  --judge-command 'claude -p "$(cat {judge_dir}/judge.md)"'
+  --review-id branch-main-feature-review-council \
+  --claude-command 'claude -p --disable-slash-commands --permission-mode acceptEdits --worktree review-council-claude "$(cat "$CLAUDE_DIR/claude-review-export.md")" < /dev/null' \
+  --codex-command 'codex exec --sandbox workspace-write -o "$CODEX_DIR/last-message.txt" "$(cat "$CODEX_DIR/codex-review-export.md")"' \
+  --judge-command 'codex exec --sandbox workspace-write -o "$JUDGE_DIR/last-message.txt" "$(cat "$JUDGE_DIR/judge.md")"'
 ```
 
 ## Resilience Options
@@ -110,15 +125,23 @@ The orchestrator monitors each reviewer's stdout for prompt-like output (lines e
 
 If both reviewers prompt simultaneously, questions are queued and presented one at a time.
 
-This is a best-effort safety net. Prefer explicit non-interactive mode (`claude -p`, `codex exec`) when possible.
+This is a best-effort safety net. Prefer explicit non-interactive mode (`claude -p --disable-slash-commands --permission-mode acceptEdits < /dev/null`, `codex exec`) when possible.
 
 ### Schema Validation
 
-After each successful stage, the orchestrator validates the output artifact (`findings.json` for reviewers, `verdict.json` for the judge) against its JSON schema. On validation failure, `success` is set to `false` and `validation_errors` are written to `status.json`.
+After each successful process exit, the orchestrator requires the full artifact set (`report.md` + `findings.json` for reviewers, `summary.md` + `verdict.json` for the judge, plus `done.json` unless `--allow-missing-sentinel` is set). It then validates the JSON artifact against its schema. Missing artifacts and validation failures both mark the stage as failed in `status.json`.
 
 ### Partial Judge Execution
 
 The judge runs if at least one reviewer succeeded. The final JSON summary includes a `reviewers_partial` flag and per-reviewer result details.
+
+### Skip Judge
+
+`--skip-judge` disables judge prompt rendering, judge command validation, and judge execution. This makes reviewer-only runs independent of any configured judge binary.
+
+### Judge Inputs
+
+The judge template always names the reviewer artifact paths it can inspect. If a listed reviewer directory does not exist in a run, that reviewer did not run and its files should be ignored.
 
 ## Sentinel Contract
 
@@ -131,13 +154,16 @@ The orchestrator waits for:
 
 If a process exits `0` but omits `done.json`, the stage is treated as incomplete.
 
-## TypeScript Runtime
+## Development Runtime
 
-The scaffold assumes a small standalone TypeScript repo:
+The supported consumer runtime is the published package. For local development from a source checkout:
 
 ```bash
+cd ~/src/review-council
 pnpm install
 pnpm typecheck
+pnpm test
+pnpm verify:package
 ```
 
 Package scripts are defined in `package.json`:
@@ -145,5 +171,7 @@ Package scripts are defined in `package.json`:
 - `pnpm review-council:orchestrate`
 - `pnpm review-council:render`
 - `pnpm typecheck`
+- `pnpm test`
+- `pnpm verify:package`
 
-Those scripts are mainly for working inside the standalone skill repo itself. For reviewing another project, prefer the direct local `tsx` binary invocation above so output paths stay relative to the project under review.
+Those scripts are for contributors working inside the package repo itself. For reviewing another project, prefer the published package command above so the docs, package metadata, and runtime contract all stay aligned.
