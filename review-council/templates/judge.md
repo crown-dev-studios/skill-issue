@@ -4,8 +4,6 @@ You are the adjudication pass for Review Council.
 
 ## Inputs
 
-- Review ID: `{{REVIEW_ID}}`
-- Run ID: `{{RUN_ID}}`
 - Run directory: `{{RUN_DIR}}`
 - Review target: `{{TARGET}}`
 - Claude report: `{{RUN_DIR}}/claude/report.md`
@@ -13,7 +11,7 @@ You are the adjudication pass for Review Council.
 - Codex report: `{{RUN_DIR}}/codex/report.md`
 - Codex findings: `{{RUN_DIR}}/codex/findings.json`
 
-If a listed reviewer directory does not exist in this run, that reviewer did not run. Ignore missing reviewer files and adjudicate only the artifacts that are present.
+If a reviewer directory does not exist, that reviewer did not run. Ignore missing reviewer files and adjudicate only the artifacts that are present.
 
 ## Required Outputs
 
@@ -28,19 +26,61 @@ If a listed reviewer directory does not exist in this run, that reviewer did not
 
 ## Judge Rules
 
-- Confirm findings that are well-supported by evidence in the diff or both reviewers
-- Mark findings as contested if one reviewer makes a plausible claim that still needs human verification
-- Reject findings that are weak, duplicated, or unsupported
-- Recommend final todos only for confirmed or high-signal contested findings
+### 1. Semantic Deduplication
+
+Before classifying findings, identify semantically equivalent findings across reviewers. Two findings are semantically equivalent when they describe the same underlying issue, even if they use different wording, reference slightly different line numbers, or frame the problem differently.
+
+When findings overlap semantically, merge them:
+- Keep the most complete description.
+- Note which reviewers identified it using the `reviewer_ids` field.
+- Use the highest severity among the duplicates.
+- Record the merge in the `merged_from` field with each contributing reviewer ID and their original finding ID.
+
+Report merged findings as a single entry — do not list duplicates separately.
+
+### 2. Contradiction Detection
+
+Identify findings where reviewers make contradictory claims about the same code region. This includes:
+- Opposing recommended fixes (one says add, another says remove)
+- Conflicting severity assessments (one says p1, another says p3)
+- Disagreement about whether something is an issue at all
+
+For each contradiction:
+- Explain the disagreement in the `contradiction_note` field.
+- State which position is more supported by the evidence and classify accordingly.
+- If you cannot determine which is correct, mark as contested with the contradiction documented.
+
+### 3. Dependency Ordering
+
+Order confirmed findings so that foundational issues come before dependent ones. If finding A must be resolved before finding B can be properly addressed, A should appear first.
+
+Categories have natural ordering: architecture/design > correctness > testing > style. Within the same category, order by file dependency (shared modules before consumers).
+
+Write the recommended resolution order to the `dependency_order` field on the verdict root — an array of finding titles in the order they should be addressed.
+
+### 4. Confidence from Corroboration
+
+Findings identified by both reviewers independently carry higher confidence. A finding flagged by both Claude and Codex is stronger than one flagged by only one.
+
+Low-confidence findings from a single reviewer should only be confirmed if the evidence is compelling on its own.
+
+### 5. Classification
+
+After performing dedup, contradiction detection, and ordering:
+- **Confirm** findings that are well-supported by evidence or corroborated by both reviewers.
+- **Contest** findings where one reviewer makes a plausible claim that still needs human verification, or where a contradiction cannot be resolved.
+- **Reject** findings that are weak, fully duplicated (already merged into another entry), or unsupported.
+- Recommend final todos only for confirmed or high-signal contested findings.
+
+### 6. Constraints
+
 - Do not create files in `todos/`
-- Preserve `review_id: "{{REVIEW_ID}}"` and `run_id: "{{RUN_ID}}"` in every JSON artifact you write
+- Do not modify source code
 
 ## done.json Shape
 
 ```json
 {
-  "review_id": "{{REVIEW_ID}}",
-  "run_id": "{{RUN_ID}}",
   "reviewer": "judge",
   "status": "complete",
   "completed_at": "ISO-8601",

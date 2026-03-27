@@ -3,8 +3,6 @@
   "title": "Review Council Judge Verdict",
   "type": "object",
   "required": [
-    "review_id",
-    "run_id",
     "target",
     "generated_at",
     "overall_verdict",
@@ -12,15 +10,10 @@
     "confirmed_findings",
     "contested_findings",
     "rejected_findings",
-    "todo_recommendations"
+    "todo_recommendations",
+    "dependency_order"
   ],
   "properties": {
-    "review_id": {
-      "type": "string"
-    },
-    "run_id": {
-      "type": "string"
-    },
     "target": {
       "type": "string"
     },
@@ -85,6 +78,12 @@
         },
         "additionalProperties": false
       }
+    },
+    "dependency_order": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "$defs": {
@@ -123,6 +122,31 @@
             "p2",
             "p3"
           ]
+        },
+        "merged_from": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mergeSource"
+          }
+        },
+        "contradiction_note": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "mergeSource": {
+      "type": "object",
+      "required": [
+        "reviewer_id",
+        "original_finding_id"
+      ],
+      "properties": {
+        "reviewer_id": {
+          "type": "string"
+        },
+        "original_finding_id": {
+          "type": "string"
         }
       },
       "additionalProperties": false

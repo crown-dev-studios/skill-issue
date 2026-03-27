@@ -19,18 +19,30 @@ interface Finding {
   files: FindingFileRef[];
 }
 
+interface MergeSource {
+  reviewer_id: string;
+  original_finding_id: string;
+}
+
 interface VerdictFinding {
   title: string;
   status: string;
   reason: string;
   final_priority?: string;
   reviewer_ids?: string[];
+  merged_from?: MergeSource[];
+  contradiction_note?: string;
+}
+
+interface TodoRecommendation {
+  title: string;
+  priority: string;
+  reason: string;
 }
 
 type ArtifactStatus = "ok" | "missing" | "malformed";
 
 interface Bundle {
-  review_id: string;
   run_id: string;
   review_target: string;
   run: JsonObject;
@@ -244,11 +256,21 @@ function verdictRows(verdict: JsonObject): string {
       }
 
       const verdictItem = item as unknown as VerdictFinding;
+      let reasonCell = htmlEscape(String(verdictItem.reason ?? "-"));
+      if (verdictItem.merged_from && verdictItem.merged_from.length > 0) {
+        const sources = verdictItem.merged_from
+          .map((s) => `${htmlEscape(s.reviewer_id)} (${htmlEscape(s.original_finding_id)})`)
+          .join(", ");
+        reasonCell += `<div class="merge-note">Merged from: ${sources}</div>`;
+      }
+      if (verdictItem.contradiction_note) {
+        reasonCell += `<div class="contradiction-note">${htmlEscape(verdictItem.contradiction_note)}</div>`;
+      }
       rows.push([
         "<tr>",
         `<td>${htmlEscape(status)}</td>`,
         `<td>${htmlEscape(String(verdictItem.title ?? "-"))}</td>`,
-        `<td>${htmlEscape(String(verdictItem.reason ?? "-"))}</td>`,
+        `<td>${reasonCell}</td>`,
         `<td>${htmlEscape(String(verdictItem.final_priority ?? "-"))}</td>`,
         "</tr>",
       ].join(""));
@@ -258,6 +280,79 @@ function verdictRows(verdict: JsonObject): string {
   return rows.length > 0
     ? rows.join("")
     : '<tr><td colspan="4" class="empty">No judge verdict rows yet.</td></tr>';
+}
+
+function todoRecommendations(verdict: JsonObject): TodoRecommendation[] {
+  const recommendations = verdict.todo_recommendations;
+  if (!Array.isArray(recommendations)) {
+    return [];
+  }
+
+  const parsed: TodoRecommendation[] = [];
+  for (const item of recommendations) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      continue;
+    }
+
+    const candidate = item as JsonObject;
+    if (
+      typeof candidate.title === "string"
+      && typeof candidate.priority === "string"
+      && typeof candidate.reason === "string"
+    ) {
+      parsed.push({
+        title: candidate.title,
+        priority: candidate.priority,
+        reason: candidate.reason,
+      });
+    }
+  }
+
+  return parsed;
+}
+
+function dependencyOrder(verdict: JsonObject): string[] {
+  const order = verdict.dependency_order;
+  if (!Array.isArray(order)) {
+    return [];
+  }
+
+  return order.filter((item): item is string => typeof item === "string" && item.length > 0);
+}
+
+function buildFollowUpsMarkdown(verdict: JsonObject): string {
+  const recommendations = todoRecommendations(verdict);
+  const order = dependencyOrder(verdict);
+
+  if (recommendations.length === 0 && order.length === 0) {
+    return [
+      "# Follow-ups",
+      "",
+      "No follow-up recommendations were recorded for this run.",
+      "",
+    ].join("\n");
+  }
+
+  const sections: string[] = ["# Follow-ups", ""];
+
+  if (recommendations.length > 0) {
+    sections.push("## Recommended Todos", "");
+    for (const recommendation of recommendations) {
+      sections.push(`- [${recommendation.priority.toUpperCase()}] ${recommendation.title}`);
+      sections.push(`  - Reason: ${recommendation.reason}`);
+    }
+    sections.push("");
+  }
+
+  if (order.length > 0) {
+    sections.push("## Suggested Resolution Order", "");
+    for (const [index, item] of order.entries()) {
+      sections.push(`${index + 1}. ${item}`);
+    }
+    sections.push("");
+  }
+
+  return sections.join("\n");
 }
 
 function chips(bundle: Bundle): string {
@@ -277,20 +372,26 @@ function chips(bundle: Bundle): string {
     .join("");
 }
 
+function loadStageStatus(stageDir: string): JsonObject {
+  const statusResult = loadJsonWithStatus(resolve(stageDir, "status.json"));
+  if (statusResult.status === "ok") {
+    return statusResult.data;
+  }
+  return {};
+}
+
 export function buildBundle(runDir: string): Bundle {
   const resolvedRunDir = resolve(runDir);
   const run = loadJsonWithStatus(resolve(resolvedRunDir, "run.json"));
   const claudeDoc = loadJsonWithStatus(resolve(resolvedRunDir, "claude", "findings.json"));
   const codexDoc = loadJsonWithStatus(resolve(resolvedRunDir, "codex", "findings.json"));
   const judgeDoc = loadJsonWithStatus(resolve(resolvedRunDir, "judge", "verdict.json"));
-  const reviewId = typeof run.data.review_id === "string" ? run.data.review_id : "";
   const runId = typeof run.data.run_id === "string" ? run.data.run_id : "";
   const reviewTarget = typeof run.data.review_target === "string"
     ? run.data.review_target
     : (typeof run.data.target === "string" ? run.data.target : "-");
 
   return {
-    review_id: reviewId,
     run_id: runId,
     review_target: reviewTarget,
     run: run.data,
@@ -300,9 +401,9 @@ export function buildBundle(runDir: string): Bundle {
     ],
     judge_verdict: judgeDoc.data,
     status: {
-      claude: loadJsonWithStatus(resolve(resolvedRunDir, "claude", "status.json")).data,
-      codex: loadJsonWithStatus(resolve(resolvedRunDir, "codex", "status.json")).data,
-      judge: loadJsonWithStatus(resolve(resolvedRunDir, "judge", "status.json")).data,
+      claude: loadStageStatus(resolve(resolvedRunDir, "claude")),
+      codex: loadStageStatus(resolve(resolvedRunDir, "codex")),
+      judge: loadStageStatus(resolve(resolvedRunDir, "judge")),
     },
     reports: {
       claude: loadText(resolve(resolvedRunDir, "claude", "report.md")),
@@ -317,6 +418,14 @@ export function buildBundle(runDir: string): Bundle {
   };
 }
 
+export function writeFollowUpsMarkdown(runDir: string): string {
+  const resolvedRunDir = resolve(runDir);
+  const verdict = loadJsonWithStatus(resolve(resolvedRunDir, "judge", "verdict.json")).data;
+  const markdown = buildFollowUpsMarkdown(verdict);
+  writeFileSync(resolve(resolvedRunDir, "follow-ups.md"), `${markdown.trimEnd()}\n`);
+  return markdown;
+}
+
 export function renderRunDir(runDir: string, templatePath?: string): void {
   const resolvedRunDir = resolve(runDir);
   const moduleDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
@@ -327,6 +436,7 @@ export function renderRunDir(runDir: string, templatePath?: string): void {
   const bundle = buildBundle(resolvedRunDir);
   const template = readFileSync(resolvedTemplatePath, "utf8");
   const target = bundle.review_target;
+  const followUpsMarkdown = buildFollowUpsMarkdown(bundle.judge_verdict);
   const candidateRows = bundle.candidate_findings.length > 0
     ? bundle.candidate_findings.map(candidateRow).join("")
     : '<tr><td colspan="5" class="empty">No candidate findings yet.</td></tr>';
@@ -346,9 +456,10 @@ export function renderRunDir(runDir: string, templatePath?: string): void {
   const replacements: Record<string, string> = {
     "__TITLE__": "Review Council Report",
     "__HEADING__": "Review Council",
-    "__META__": htmlEscape(`Target: ${target} · Review ID: ${bundle.review_id || "-"} · Run ID: ${bundle.run_id || "-"}`),
+    "__META__": htmlEscape(`Target: ${target} · Run: ${bundle.run_id || "-"}`),
     "__CHIPS__": chips(bundle),
     "__JUDGE_SUMMARY__": renderMarkdown(bundle.reports.judge || "Judge output not available yet."),
+    "__FOLLOW_UPS__": renderMarkdown(followUpsMarkdown),
     "__STATUS_ROWS__": statusRows,
     "__DIAGNOSTICS_DISPLAY__": hasDiagnostics ? "block" : "none",
     "__DIAGNOSTICS_CONTENT__": diagnosticsContent,

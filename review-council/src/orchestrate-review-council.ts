@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { accessSync, constants, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { finished } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -8,20 +8,9 @@ import { close as closeInteractionQueue, enqueue } from "./interaction-queue.js"
 import {
   buildReviewPaths,
   createRunId,
-  deriveReviewId,
-  isReviewScopedRunDir,
   normalizeReviewTarget,
-  validateReviewId,
 } from "./review-session.js";
-import { renderRunDir } from "./render-review-html.js";
-import {
-  judgeDoneSchema,
-  judgeVerdictSchema,
-  reviewDoneSchema,
-  reviewFindingsSchema,
-} from "./schemas.js";
-import type { ValidationError } from "./types.js";
-import type { z } from "zod";
+import { renderRunDir, writeFollowUpsMarkdown } from "./render-review-html.js";
 
 type StageName = "claude" | "codex" | "judge";
 
@@ -41,8 +30,6 @@ export interface StageDefinition {
   promptTemplateSource: string;
   requiredArtifacts: string[];
   jsonArtifactName: "findings.json" | "verdict.json";
-  artifactSchema: z.ZodType<{ review_id: string; run_id: string }>;
-  doneSchema?: z.ZodType<{ review_id: string; run_id: string }>;
   stageVars: Record<string, string>;
 }
 
@@ -57,8 +44,7 @@ export interface StageAttemptResult {
 
 interface StageEvaluation {
   success: boolean;
-  failureReason?: "process_failed" | "timeout" | "missing_artifacts" | "schema_validation_failed";
-  validationErrors?: ValidationError[];
+  failureReason?: "process_failed" | "timeout" | "missing_artifacts" | "invalid_artifacts";
   artifactPresence: Record<string, boolean>;
   missingArtifacts: string[];
 }
@@ -70,14 +56,12 @@ export interface StageResult {
   timed_out: boolean;
   attempts: number;
   failure_reason?: StageEvaluation["failureReason"];
-  validation_errors?: ValidationError[];
   missing_artifacts?: string[];
   artifact_presence?: Record<string, boolean>;
 }
 
 interface CliOptions {
   target: string;
-  reviewId?: string;
   runDir?: string;
   reviewProfileId: string;
   judgeProfileId: string;
@@ -91,6 +75,7 @@ interface CliOptions {
   skipJudge: boolean;
   skipHtml: boolean;
   openHtml: boolean;
+  skillPaths?: string[];
   timeoutMs: number;
   maxRetries: number;
 }
@@ -106,7 +91,6 @@ interface PreparedRun {
   cwd: string;
   packageDir: string;
   reviewTarget: string;
-  reviewId: string;
   runId: string;
   judgeEnabled: boolean;
   requireSentinel: boolean;
@@ -135,8 +119,46 @@ const JUDGE_PROFILE_TEMPLATES: Record<string, string> = {
   default: "judge.md",
 };
 
+const DEFAULT_CLAUDE_COMMAND = 'claude --dangerously-skip-permissions -p "$(cat $CLAUDE_DIR/claude-review-export.md)"';
+const DEFAULT_CODEX_COMMAND = 'codex exec --full-auto "$(cat $CODEX_DIR/codex-review-export.md)"';
+const DEFAULT_JUDGE_COMMAND = 'codex exec --full-auto "$(cat $JUDGE_DIR/judge.md)"';
+
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function normalizeSkillPaths(rawSkillPaths: string): string[] | undefined {
+  const skillPaths = Array.from(
+    new Set(
+      rawSkillPaths
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => resolve(item)),
+    ),
+  );
+  return skillPaths.length > 0 ? skillPaths : undefined;
+}
+
+export function buildSkillReferencesSection(skillPaths: string[]): string {
+  if (skillPaths.length === 0) {
+    return `## Selected Review Skills
+
+No additional review skills were selected for this review.`;
+  }
+
+  const lines: string[] = [];
+  for (const skillPath of skillPaths) {
+    const normalizedPath = skillPath.replace(/[\\/]+$/, "");
+    const skillName = basename(normalizedPath) || normalizedPath;
+    lines.push(`- \`${skillName}\` at \`${normalizedPath}\``);
+  }
+
+  return `## Selected Review Skills
+
+For this review, use these skills. The paths are provided so you can discover them when needed. If a finding is primarily driven by one selected skill, use that skill name as the \`category\` value in \`findings.json\`.
+
+${lines.join("\n")}`;
 }
 
 function extractBinaryForPreflight(command: string): string | null {
@@ -345,8 +367,6 @@ export function evaluateStageArtifacts(
   stage: StageDefinition,
   attempt: StageAttemptResult,
   requireSentinel: boolean,
-  reviewId: string,
-  runId: string,
 ): StageEvaluation {
   const artifactPresence: Record<string, boolean> = {};
   const requiredArtifacts = [...stage.requiredArtifacts];
@@ -387,68 +407,14 @@ export function evaluateStageArtifacts(
     };
   }
 
-  const artifactPath = resolve(stage.stageDir, stage.jsonArtifactName);
-  try {
-    const raw = readJsonFile(artifactPath, stage.jsonArtifactName);
-    const parsed = stage.artifactSchema.safeParse(raw);
-    const validationErrors: ValidationError[] = [];
-
-    if (!parsed.success) {
-      validationErrors.push(...zodToValidationErrors(parsed.error));
-    } else {
-      if (parsed.data.review_id !== reviewId) {
-        validationErrors.push({
-          path: "review_id",
-          message: `expected review_id "${reviewId}" but received "${parsed.data.review_id}"`,
-        });
-      }
-      if (parsed.data.run_id !== runId) {
-        validationErrors.push({
-          path: "run_id",
-          message: `expected run_id "${runId}" but received "${parsed.data.run_id}"`,
-        });
-      }
-    }
-
-    if (requireSentinel) {
-      const donePath = resolve(stage.stageDir, "done.json");
-      const doneRaw = readJsonFile(donePath, "done.json");
-      if (stage.doneSchema) {
-        const doneParsed = stage.doneSchema.safeParse(doneRaw);
-        if (!doneParsed.success) {
-          validationErrors.push(...zodToValidationErrors(doneParsed.error));
-        } else {
-          if (doneParsed.data.review_id !== reviewId) {
-            validationErrors.push({
-              path: "done.review_id",
-              message: `expected review_id "${reviewId}" but received "${doneParsed.data.review_id}"`,
-            });
-          }
-          if (doneParsed.data.run_id !== runId) {
-            validationErrors.push({
-              path: "done.run_id",
-              message: `expected run_id "${runId}" but received "${doneParsed.data.run_id}"`,
-            });
-          }
-        }
-      }
-    }
-
-    if (validationErrors.length > 0) {
-      return {
-        success: false,
-        failureReason: "schema_validation_failed",
-        validationErrors,
-        artifactPresence,
-        missingArtifacts,
-      };
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+  const structuredArtifactIsValid = validateJsonArtifact(
+    resolve(stage.stageDir, stage.jsonArtifactName),
+    stage.jsonArtifactName,
+  );
+  if (!structuredArtifactIsValid) {
     return {
       success: false,
-      failureReason: "schema_validation_failed",
-      validationErrors: [{ path: "", message }],
+      failureReason: "invalid_artifacts",
       artifactPresence,
       missingArtifacts,
     };
@@ -461,11 +427,42 @@ export function evaluateStageArtifacts(
   };
 }
 
+function validateJsonArtifact(
+  artifactPath: string,
+  artifactName: StageDefinition["jsonArtifactName"],
+): boolean {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(readFileSync(artifactPath, "utf8")) as unknown;
+  } catch {
+    return false;
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return false;
+  }
+
+  if (artifactName === "findings.json") {
+    return Array.isArray((parsed as { findings?: unknown }).findings);
+  }
+
+  const verdict = parsed as {
+    overall_verdict?: unknown;
+    confirmed_findings?: unknown;
+    contested_findings?: unknown;
+    rejected_findings?: unknown;
+  };
+
+  return typeof verdict.overall_verdict === "string"
+    && Array.isArray(verdict.confirmed_findings)
+    && Array.isArray(verdict.contested_findings)
+    && Array.isArray(verdict.rejected_findings);
+}
+
 function writeStageStatus(
   statusPath: string,
   stage: StageDefinition,
-  reviewId: string,
-  runId: string,
   command: string,
   attempt: StageAttemptResult,
   evaluation: StageEvaluation,
@@ -476,26 +473,17 @@ function writeStageStatus(
     statusPath,
     `${JSON.stringify(
       {
-        review_id: reviewId,
-        run_id: runId,
         stage: stage.name,
         command,
-        prompt_template: stage.promptTemplatePath,
-        prompt_template_source: stage.promptTemplateSource,
         started_at: attempt.startedAt,
         finished_at: attempt.finishedAt,
         exit_code: attempt.exitCode,
         require_sentinel: requireSentinel,
         done_file_present: evaluation.artifactPresence["done.json"] ?? false,
-        required_artifacts: [...stage.requiredArtifacts, ...(requireSentinel ? ["done.json"] : [])],
-        artifact_presence: evaluation.artifactPresence,
-        missing_artifacts: evaluation.missingArtifacts,
         success: evaluation.success,
-        failure_reason: evaluation.failureReason ?? null,
         timed_out: attempt.timedOut,
         attempts,
         retried: attempts > 1,
-        validation_errors: evaluation.validationErrors ?? [],
         stdout_log: attempt.stdoutPath,
         stderr_log: attempt.stderrPath,
       },
@@ -511,8 +499,6 @@ async function runStage(
   requireSentinel: boolean,
   timeoutMs: number,
   maxRetries: number,
-  reviewId: string,
-  runId: string,
   commandEnv: Record<string, string>,
 ): Promise<StageResult | null> {
   if (!stage.command) {
@@ -536,8 +522,8 @@ async function runStage(
     attempts = attemptIndex + 1;
     cleanupStageFiles(stage.stageDir, stage.requiredArtifacts);
     lastAttempt = await runStageOnce(stage.name, command, stage.stageDir, workdir, timeoutMs, commandEnv);
-    lastEvaluation = evaluateStageArtifacts(stage, lastAttempt, requireSentinel, reviewId, runId);
-    writeStageStatus(statusPath, stage, reviewId, runId, command, lastAttempt, lastEvaluation, requireSentinel, attempts);
+    lastEvaluation = evaluateStageArtifacts(stage, lastAttempt, requireSentinel);
+    writeStageStatus(statusPath, stage, command, lastAttempt, lastEvaluation, requireSentinel, attempts);
 
     if (lastEvaluation.success || lastAttempt.timedOut) {
       break;
@@ -555,42 +541,9 @@ async function runStage(
     timed_out: lastAttempt.timedOut,
     attempts,
     failure_reason: lastEvaluation.failureReason,
-    validation_errors: lastEvaluation.validationErrors,
     missing_artifacts: lastEvaluation.missingArtifacts,
     artifact_presence: lastEvaluation.artifactPresence,
   };
-}
-
-function writeLatestRunMarker(reviewDir: string, runDir: string, reviewId: string, runId: string): void {
-  writeFileSync(
-    resolve(reviewDir, "latest-run.json"),
-    `${JSON.stringify(
-      {
-        review_id: reviewId,
-        run_id: runId,
-        run_dir: runDir,
-        updated_at: nowIso(),
-      },
-      null,
-      2,
-    )}\n`,
-  );
-}
-
-function zodToValidationErrors(error: z.core.$ZodError): ValidationError[] {
-  return error.issues.map((issue) => ({
-    path: issue.path.map(String).join("."),
-    message: issue.message,
-  }));
-}
-
-function readJsonFile(path: string, label: string): unknown {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`failed to parse ${label}: ${message}`);
-  }
 }
 
 export function parseCliOptions(args: string[]): CliOptions | null {
@@ -599,7 +552,6 @@ export function parseCliOptions(args: string[]): CliOptions | null {
     allowPositionals: false,
     options: {
       target: { type: "string" },
-      "review-id": { type: "string" },
       "run-dir": { type: "string" },
       "review-profile": { type: "string" },
       "judge-profile": { type: "string" },
@@ -609,6 +561,9 @@ export function parseCliOptions(args: string[]): CliOptions | null {
       "claude-command": { type: "string" },
       "codex-command": { type: "string" },
       "judge-command": { type: "string" },
+      "skill-paths": { type: "string" },
+      "no-claude": { type: "boolean" },
+      "no-codex": { type: "boolean" },
       "allow-missing-sentinel": { type: "boolean" },
       "skip-judge": { type: "boolean" },
       "skip-html": { type: "boolean" },
@@ -645,28 +600,31 @@ export function parseCliOptions(args: string[]): CliOptions | null {
     return null;
   }
 
-  if (!values["claude-command"] && !values["codex-command"]) {
-    console.error("At least one reviewer command must be configured via --claude-command and/or --codex-command.");
+  const noClaude = values["no-claude"] ?? false;
+  const noCodex = values["no-codex"] ?? false;
+
+  if (noClaude && noCodex) {
+    console.error("Cannot use both --no-claude and --no-codex. At least one model reviewer is required.");
     process.exitCode = 1;
     return null;
   }
 
   return {
     target: values.target,
-    reviewId: values["review-id"],
     runDir: values["run-dir"],
     reviewProfileId: values["review-profile"] ?? "default",
     judgeProfileId: values["judge-profile"] ?? "default",
     claudePromptTemplate: values["claude-prompt-template"],
     codexPromptTemplate: values["codex-prompt-template"],
     judgePromptTemplate: values["judge-prompt-template"],
-    claudeCommand: values["claude-command"],
-    codexCommand: values["codex-command"],
-    judgeCommand: values["judge-command"],
+    claudeCommand: noClaude ? undefined : (values["claude-command"] ?? DEFAULT_CLAUDE_COMMAND),
+    codexCommand: noCodex ? undefined : (values["codex-command"] ?? DEFAULT_CODEX_COMMAND),
+    judgeCommand: values["judge-command"] ?? DEFAULT_JUDGE_COMMAND,
     allowMissingSentinel: values["allow-missing-sentinel"] ?? false,
     skipJudge: values["skip-judge"] ?? false,
     skipHtml: values["skip-html"] ?? false,
     openHtml: values["open-html"] ?? false,
+    skillPaths: values["skill-paths"] ? normalizeSkillPaths(values["skill-paths"]) : undefined,
     timeoutMs,
     maxRetries,
   };
@@ -707,10 +665,9 @@ function createStageDefinitions(
   promptSelections: PromptSelections,
   commands: Record<StageName, string | undefined>,
   reviewTarget: string,
-  reviewId: string,
-  runId: string,
   reviewSchemaPath: string,
   judgeSchemaPath: string,
+  skillReferences: string,
 ): StageDefinition[] {
   const reviewerStages: StageDefinition[] = [
     {
@@ -723,19 +680,15 @@ function createStageDefinitions(
       promptTemplateSource: promptSelections.claude.source,
       requiredArtifacts: ["report.md", "findings.json"],
       jsonArtifactName: "findings.json",
-      artifactSchema: reviewFindingsSchema,
-      doneSchema: reviewDoneSchema,
       stageVars: {
         TARGET: reviewTarget,
         REVIEW_TARGET: reviewTarget,
-        REVIEW_ID: reviewId,
-        RUN_ID: runId,
-        REVIEW_DIR: paths.reviewDir,
         RUN_DIR: paths.runDir,
         ARTIFACT_DIR: paths.claudeDir,
         SCHEMA_PATH: reviewSchemaPath,
         REVIEWER_NAME: "Claude",
         REVIEWER_NAME_LOWER: "claude",
+        SKILL_REFERENCES: skillReferences,
       },
     },
     {
@@ -748,19 +701,15 @@ function createStageDefinitions(
       promptTemplateSource: promptSelections.codex.source,
       requiredArtifacts: ["report.md", "findings.json"],
       jsonArtifactName: "findings.json",
-      artifactSchema: reviewFindingsSchema,
-      doneSchema: reviewDoneSchema,
       stageVars: {
         TARGET: reviewTarget,
         REVIEW_TARGET: reviewTarget,
-        REVIEW_ID: reviewId,
-        RUN_ID: runId,
-        REVIEW_DIR: paths.reviewDir,
         RUN_DIR: paths.runDir,
         ARTIFACT_DIR: paths.codexDir,
         SCHEMA_PATH: reviewSchemaPath,
         REVIEWER_NAME: "Codex",
         REVIEWER_NAME_LOWER: "codex",
+        SKILL_REFERENCES: skillReferences,
       },
     },
   ];
@@ -781,14 +730,9 @@ function createStageDefinitions(
       promptTemplateSource: promptSelections.judge.source,
       requiredArtifacts: ["summary.md", "verdict.json"],
       jsonArtifactName: "verdict.json",
-      artifactSchema: judgeVerdictSchema,
-      doneSchema: judgeDoneSchema,
       stageVars: {
         TARGET: reviewTarget,
         REVIEW_TARGET: reviewTarget,
-        REVIEW_ID: reviewId,
-        RUN_ID: runId,
-        REVIEW_DIR: paths.reviewDir,
         RUN_DIR: paths.runDir,
         ARTIFACT_DIR: paths.judgeDir,
         SCHEMA_PATH: judgeSchemaPath,
@@ -803,7 +747,6 @@ function writeRunMetadata(preparedRun: PreparedRun): void {
     cwd,
     packageDir,
     reviewTarget,
-    reviewId,
     runId,
     judgeEnabled,
     paths,
@@ -814,15 +757,13 @@ function writeRunMetadata(preparedRun: PreparedRun): void {
     resolve(paths.runDir, "run.json"),
     `${JSON.stringify(
       {
-        review_id: reviewId,
         run_id: runId,
         review_target: reviewTarget,
         created_at: nowIso(),
         cwd,
         skill_dir: packageDir,
-        review_dir: paths.reviewDir,
         run_dir: paths.runDir,
-        review_id_source: options.reviewId ? "explicit" : "derived",
+        selected_skills: options.skillPaths ?? [],
         review_profile: options.reviewProfileId,
         judge_profile: options.judgeProfileId,
         prompt_templates: {
@@ -856,16 +797,8 @@ function prepareRun(options: CliOptions): PreparedRun | null {
   const packageDir = resolve(moduleDir, "..");
   const cwd = process.cwd();
   const reviewTarget = normalizeReviewTarget(options.target);
-  const reviewId = options.reviewId ?? deriveReviewId(cwd, reviewTarget);
-  const reviewIdError = validateReviewId(reviewId);
-  if (reviewIdError) {
-    console.error(`Invalid --review-id "${reviewId}": ${reviewIdError}`);
-    process.exitCode = 1;
-    return null;
-  }
-
   const runId = createRunId();
-  const paths = buildReviewPaths(cwd, reviewId, runId, options.runDir);
+  const paths = buildReviewPaths(cwd, runId, options.runDir);
   const judgeEnabled = !options.skipJudge && Boolean(options.judgeCommand);
 
   let promptSelections: PromptSelections;
@@ -877,7 +810,7 @@ function prepareRun(options: CliOptions): PreparedRun | null {
     return null;
   }
 
-  for (const dir of [paths.reviewDir, paths.runDir, paths.claudeDir, paths.codexDir, paths.judgeDir]) {
+  for (const dir of [paths.runDir, paths.claudeDir, paths.codexDir, paths.judgeDir]) {
     mkdirSync(dir, { recursive: true });
   }
 
@@ -886,9 +819,7 @@ function prepareRun(options: CliOptions): PreparedRun | null {
   const commandEnv: Record<string, string> = {
     CWD: cwd,
     SKILL_DIR: packageDir,
-    REVIEW_ID: reviewId,
     RUN_ID: runId,
-    REVIEW_DIR: paths.reviewDir,
     RUN_DIR: paths.runDir,
     CLAUDE_DIR: paths.claudeDir,
     CODEX_DIR: paths.codexDir,
@@ -903,15 +834,15 @@ function prepareRun(options: CliOptions): PreparedRun | null {
     judge: judgeEnabled ? options.judgeCommand : undefined,
   };
 
+  const skillReferences = buildSkillReferencesSection(options.skillPaths ?? []);
   const stageDefinitions = createStageDefinitions(
     paths,
     promptSelections,
     rawCommands,
     reviewTarget,
-    reviewId,
-    runId,
     reviewSchemaPath,
     judgeSchemaPath,
+    skillReferences,
   );
 
   for (const stage of stageDefinitions) {
@@ -927,7 +858,6 @@ function prepareRun(options: CliOptions): PreparedRun | null {
     cwd,
     packageDir,
     reviewTarget,
-    reviewId,
     runId,
     judgeEnabled,
     requireSentinel: !options.allowMissingSentinel,
@@ -948,7 +878,6 @@ function prepareRun(options: CliOptions): PreparedRun | null {
     cwd,
     packageDir,
     reviewTarget,
-    reviewId,
     runId,
     judgeEnabled,
     requireSentinel: !options.allowMissingSentinel,
@@ -970,8 +899,6 @@ async function runReviewerStages(preparedRun: PreparedRun): Promise<ReviewerExec
         preparedRun.requireSentinel,
         preparedRun.options.timeoutMs,
         preparedRun.options.maxRetries,
-        preparedRun.reviewId,
-        preparedRun.runId,
         preparedRun.commandEnv,
       ),
     ),
@@ -1021,8 +948,6 @@ async function runJudgeStage(
     preparedRun.requireSentinel,
     preparedRun.options.timeoutMs,
     preparedRun.options.maxRetries,
-    preparedRun.reviewId,
-    preparedRun.runId,
     preparedRun.commandEnv,
   );
 }
@@ -1032,6 +957,10 @@ function finalizeRun(
   reviewerExecution: ReviewerExecution,
   judgeResult: StageResult | null,
 ): void {
+  if (judgeResult?.success === true) {
+    writeFollowUpsMarkdown(preparedRun.paths.runDir);
+  }
+
   if (!preparedRun.options.skipHtml) {
     renderRunDir(preparedRun.paths.runDir);
   }
@@ -1045,14 +974,9 @@ function finalizeRun(
 
   const runUsable = reviewerExecution.successfulReviewerResults.length > 0
     && (!preparedRun.judgeEnabled || judgeResult?.success === true);
-  if (runUsable && isReviewScopedRunDir(preparedRun.paths)) {
-    writeLatestRunMarker(preparedRun.paths.reviewDir, preparedRun.paths.runDir, preparedRun.reviewId, preparedRun.runId);
-  }
 
   console.log(JSON.stringify({
-    review_id: preparedRun.reviewId,
     run_id: preparedRun.runId,
-    review_dir: preparedRun.paths.reviewDir,
     run_dir: preparedRun.paths.runDir,
     reviewers_ok: reviewerExecution.reviewersOk,
     reviewers_partial: reviewerExecution.reviewersPartial,
@@ -1063,7 +987,6 @@ function finalizeRun(
       exit_code: result.exit_code,
       attempts: result.attempts,
       failure_reason: result.failure_reason ?? null,
-      validation_errors: result.validation_errors ?? [],
       missing_artifacts: result.missing_artifacts ?? [],
     })),
     judge_ran: judgeResult !== null,
@@ -1078,8 +1001,10 @@ export function printHelp(commandName: string = "review-council"): void {
 
 options:
   --target <target>                       Review target label
-  --review-id <id>                        Stable review identifier
   --run-dir <dir>                         Output directory for this run
+  --no-claude                             Skip Claude reviewer
+  --no-codex                              Skip Codex reviewer
+  --skill-paths <paths>                   Comma-separated paths to skill directories
   --review-profile <id>                   Reviewer prompt profile (default: default)
   --judge-profile <id>                    Judge prompt profile (default: default)
   --claude-prompt-template <path>         Override Claude reviewer prompt template
@@ -1088,10 +1013,6 @@ options:
   --claude-command <command>              Shell command to launch Claude reviewer
   --codex-command <command>               Shell command to launch Codex reviewer
   --judge-command <command>               Shell command to launch the judge stage
-
-environment variables available in commands:
-  $CWD, $SKILL_DIR, $REVIEW_ID, $RUN_ID, $REVIEW_DIR, $RUN_DIR,
-  $CLAUDE_DIR, $CODEX_DIR, $JUDGE_DIR, $REVIEW_SCHEMA, $JUDGE_SCHEMA
   --allow-missing-sentinel                Treat exit code 0 as success without done.json
   --skip-judge                            Skip the judge stage
   --skip-html                             Skip HTML rendering

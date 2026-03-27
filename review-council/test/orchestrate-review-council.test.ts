@@ -10,10 +10,8 @@ import {
   type StageAttemptResult,
   type StageDefinition,
 } from "../src/orchestrate-review-council.js";
-import { reviewDoneSchema, reviewFindingsSchema } from "../src/schemas.js";
 import {
   createRunId,
-  deriveReviewId,
   normalizeReviewTarget,
 } from "../src/review-session.js";
 
@@ -39,8 +37,6 @@ function makeStageDefinition(stageDir: string): StageDefinition {
     promptTemplateSource: "test",
     requiredArtifacts: ["report.md", "findings.json"],
     jsonArtifactName: "findings.json",
-    artifactSchema: reviewFindingsSchema,
-    doneSchema: reviewDoneSchema,
     stageVars: {},
   };
 }
@@ -57,11 +53,9 @@ function makeAttempt(overrides: Partial<StageAttemptResult> = {}): StageAttemptR
   };
 }
 
-function writeValidArtifacts(stageDir: string, reviewId: string, runId: string): void {
+function writeValidArtifacts(stageDir: string): void {
   writeFileSync(resolve(stageDir, "report.md"), "# Report\n");
   writeJson(resolve(stageDir, "findings.json"), {
-    review_id: reviewId,
-    run_id: runId,
     reviewer: "claude",
     target: "staged changes",
     generated_at: "2026-03-18T00:00:00.000Z",
@@ -73,8 +67,6 @@ function writeValidArtifacts(stageDir: string, reviewId: string, runId: string):
     }],
   });
   writeJson(resolve(stageDir, "done.json"), {
-    review_id: reviewId,
-    run_id: runId,
     reviewer: "claude",
     status: "complete",
     completed_at: "2026-03-18T00:00:01.000Z",
@@ -102,9 +94,31 @@ describe("parseCliOptions", () => {
     process.exitCode = prev;
   });
 
-  test("requires at least one reviewer command", () => {
-    const prev = process.exitCode;
+  test("uses default commands when none provided", () => {
     const result = parseCliOptions(["--target", "test"]);
+    assert.ok(result);
+    assert.ok(result.claudeCommand?.includes("claude"));
+    assert.ok(result.codexCommand?.includes("codex"));
+    assert.ok(result.judgeCommand?.includes("codex"));
+    assert.doesNotMatch(result.codexCommand ?? "", /last-message\.txt/);
+    assert.doesNotMatch(result.judgeCommand ?? "", /last-message\.txt/);
+  });
+
+  test("normalizes skill directory inputs and removes blank entries", () => {
+    const result = parseCliOptions([
+      "--target", "staged changes",
+      "--skill-paths", " ./skills/architecture-review , , ./skills/testing-philosophy/ ",
+    ]);
+    assert.ok(result);
+    assert.deepEqual(result.skillPaths, [
+      resolve("skills/architecture-review"),
+      resolve("skills/testing-philosophy"),
+    ]);
+  });
+
+  test("rejects --no-claude and --no-codex together", () => {
+    const prev = process.exitCode;
+    const result = parseCliOptions(["--target", "test", "--no-claude", "--no-codex"]);
     assert.equal(result, null);
     assert.equal(process.exitCode, 1);
     process.exitCode = prev;
@@ -130,16 +144,13 @@ describe("parseCliOptions", () => {
 // -- evaluateStageArtifacts --
 
 describe("evaluateStageArtifacts", () => {
-  const reviewId = "test-review";
-  const runId = "20260318-00000000-abcd1234";
-
   test("succeeds when all artifacts are valid", () => {
     const { root, stageDir } = makeTempStageDir();
     try {
       const stage = makeStageDefinition(stageDir);
-      writeValidArtifacts(stageDir, reviewId, runId);
+      writeValidArtifacts(stageDir);
 
-      const result = evaluateStageArtifacts(stage, makeAttempt(), true, reviewId, runId);
+      const result = evaluateStageArtifacts(stage, makeAttempt(), true);
       assert.equal(result.success, true);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -150,7 +161,7 @@ describe("evaluateStageArtifacts", () => {
     const { root, stageDir } = makeTempStageDir();
     try {
       const stage = makeStageDefinition(stageDir);
-      const result = evaluateStageArtifacts(stage, makeAttempt({ timedOut: true }), false, reviewId, runId);
+      const result = evaluateStageArtifacts(stage, makeAttempt({ timedOut: true }), false);
       assert.equal(result.success, false);
       assert.equal(result.failureReason, "timeout");
     } finally {
@@ -162,7 +173,7 @@ describe("evaluateStageArtifacts", () => {
     const { root, stageDir } = makeTempStageDir();
     try {
       const stage = makeStageDefinition(stageDir);
-      const result = evaluateStageArtifacts(stage, makeAttempt({ exitCode: 1 }), false, reviewId, runId);
+      const result = evaluateStageArtifacts(stage, makeAttempt({ exitCode: 1 }), false);
       assert.equal(result.success, false);
       assert.equal(result.failureReason, "process_failed");
     } finally {
@@ -174,9 +185,8 @@ describe("evaluateStageArtifacts", () => {
     const { root, stageDir } = makeTempStageDir();
     try {
       const stage = makeStageDefinition(stageDir);
-      // Write findings.json but not report.md
-      writeJson(resolve(stageDir, "findings.json"), { review_id: reviewId, run_id: runId });
-      const result = evaluateStageArtifacts(stage, makeAttempt(), false, reviewId, runId);
+      writeJson(resolve(stageDir, "findings.json"), { reviewer: "claude" });
+      const result = evaluateStageArtifacts(stage, makeAttempt(), false);
       assert.equal(result.success, false);
       assert.equal(result.failureReason, "missing_artifacts");
       assert.ok(result.missingArtifacts.includes("report.md"));
@@ -185,15 +195,13 @@ describe("evaluateStageArtifacts", () => {
     }
   });
 
-  test("rejects artifacts with wrong review_id", () => {
+  test("succeeds when artifacts exist regardless of content", () => {
     const { root, stageDir } = makeTempStageDir();
     try {
       const stage = makeStageDefinition(stageDir);
-      writeValidArtifacts(stageDir, "wrong-id", "wrong-run");
-      const result = evaluateStageArtifacts(stage, makeAttempt(), false, reviewId, runId);
-      assert.equal(result.success, false);
-      assert.equal(result.failureReason, "schema_validation_failed");
-      assert.ok(result.validationErrors?.some((e) => e.path === "review_id"));
+      writeValidArtifacts(stageDir);
+      const result = evaluateStageArtifacts(stage, makeAttempt(), false);
+      assert.equal(result.success, true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -205,20 +213,6 @@ describe("evaluateStageArtifacts", () => {
 describe("review session", () => {
   test("normalizeReviewTarget collapses whitespace", () => {
     assert.equal(normalizeReviewTarget("  staged   changes "), "staged changes");
-  });
-
-  test("deriveReviewId is stable for the same inputs", () => {
-    assert.equal(
-      deriveReviewId("/tmp/repo", "staged changes"),
-      deriveReviewId("/tmp/repo", " staged   changes "),
-    );
-  });
-
-  test("deriveReviewId differs for different targets", () => {
-    assert.notEqual(
-      deriveReviewId("/tmp/repo", "staged changes"),
-      deriveReviewId("/tmp/repo", "branch main..HEAD"),
-    );
   });
 
   test("createRunId produces unique values", () => {

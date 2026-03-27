@@ -3,8 +3,6 @@
   "title": "Review Findings Export",
   "type": "object",
   "required": [
-    "review_id",
-    "run_id",
     "reviewer",
     "target",
     "generated_at",
@@ -12,12 +10,6 @@
     "findings"
   ],
   "properties": {
-    "review_id": {
-      "type": "string"
-    },
-    "run_id": {
-      "type": "string"
-    },
     "reviewer": {
       "type": "string",
       "enum": [

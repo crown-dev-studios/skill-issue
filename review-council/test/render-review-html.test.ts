@@ -1,9 +1,9 @@
 import { strict as assert } from "node:assert";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { renderRunDir } from "../src/render-review-html.js";
+import { renderRunDir, writeFollowUpsMarkdown } from "../src/render-review-html.js";
 
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
@@ -39,6 +39,16 @@ test("renderRunDir renders markdown reports as HTML", () => {
       confirmed_findings: [],
       contested_findings: [],
       rejected_findings: [],
+      todo_recommendations: [
+        {
+          title: "Add regression coverage for staged changes rendering",
+          priority: "p2",
+          reason: "The HTML output is part of the public review flow.",
+        },
+      ],
+      dependency_order: [
+        "Add regression coverage for staged changes rendering",
+      ],
     });
 
     writeFileSync(
@@ -69,10 +79,16 @@ test("renderRunDir renders markdown reports as HTML", () => {
       ].join("\n"),
     );
 
+    const followUpsMarkdown = writeFollowUpsMarkdown(runDir);
     renderRunDir(runDir);
 
     const html = readFileSync(resolve(runDir, "index.html"), "utf8");
+    assert.equal(existsSync(resolve(runDir, "follow-ups.md")), true);
+    assert.match(followUpsMarkdown, /# Follow-ups/);
+    assert.match(followUpsMarkdown, /\[P2\] Add regression coverage for staged changes rendering/);
     assert.match(html, /<h1>Judge Heading<\/h1>/);
+    assert.match(html, /<h2>Follow-ups<\/h2>/);
+    assert.match(html, /Suggested Resolution Order/);
     assert.match(html, /<ul>\s*<li>first bullet<\/li>\s*<li>second bullet with <code>inline code<\/code><\/li>\s*<\/ul>/);
     assert.match(html, /<blockquote>\s*<p>quoted text<\/p>\s*<\/blockquote>/);
     assert.match(html, /<h2>Reviewer Details<\/h2>/);
