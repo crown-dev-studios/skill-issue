@@ -1,6 +1,6 @@
 {
   "name": "@crown-dev-studios/review-council",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Parallel multi-agent code review orchestration with bundled prompts, schemas, and HTML reporting.",
   "repository": {
     "type": "git",
