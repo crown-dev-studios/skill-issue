@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
+# Local preflight only: build, test, and pack dry-run. Does not publish.
+# For a full release use ./scripts/bump-version.sh then ./scripts/deploy.sh
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
+
+echo "==> Installing dependencies (frozen lockfile)"
+pnpm install --frozen-lockfile
 
 echo "==> Building package"
 pnpm run build
@@ -15,12 +20,12 @@ pnpm run pack:dry-run
 
 cat <<'EOF'
 
-Manual publish checklist:
-1. Review the dry-run tarball output above.
-2. Confirm the next version in package.json.
-3. Publish manually:
-   npm publish --access public
-4. Smoke-check the published CLI:
-   npm view @crown-dev-studios/review-council version
-   npx @crown-dev-studios/review-council --help
+Preflight complete (no publish).
+
+Full release flow:
+  1. ./scripts/bump-version.sh patch    # or explicit semver / major / minor
+  2. ./scripts/check-version.sh --require-tag
+  3. ./scripts/deploy.sh                # optional: --dry-run first
+
+Prerequisites: npm login (for pnpm publish), clean git tree, tag vX.Y.Z exists.
 EOF

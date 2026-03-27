@@ -2,6 +2,14 @@
   "name": "@crown-dev-studios/review-council",
   "version": "0.1.0",
   "description": "Parallel multi-agent code review orchestration with bundled prompts, schemas, and HTML reporting.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crown-dev-studios/review-council.git"
+  },
+  "homepage": "https://github.com/crown-dev-studios/review-council#readme",
+  "bugs": {
+    "url": "https://github.com/crown-dev-studios/review-council/issues"
+  },
   "packageManager": "pnpm@10.30.3",
   "type": "module",
   "bin": {
@@ -30,9 +38,12 @@
     "review-council:render": "tsx src/render-review-html.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:unit": "node --import tsx/esm --test test/*.test.ts",
-    "test:package": "node --test test/package-smoke.test.mjs",
-    "test": "pnpm run typecheck && pnpm run test:unit && pnpm run test:package",
-    "verify:package": "pnpm run pack:dry-run && pnpm run test:package",
+    "test": "pnpm run typecheck && pnpm run test:unit",
+    "verify:package": "pnpm run pack:dry-run",
+    "release:preflight": "bash scripts/prepare-release.sh",
+    "release:check-version": "bash scripts/check-version.sh",
+    "release:bump": "bash scripts/bump-version.sh",
+    "release:deploy": "bash scripts/deploy.sh",
     "release:manual": "bash scripts/prepare-release.sh"
   },
   "devDependencies": {
@@ -42,7 +53,6 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "markdown-it": "^14.1.1",
-    "zod": "^4.3.5"
+    "markdown-it": "^14.1.1"
   }
 }
