@@ -1,8 +1,8 @@
 ---
-
-## name: plan-compliance
+name: plan-compliance
 description: Check whether an implementation matches its plan of record. Use when a plan exists and code has been written against it. Flags deviations, missing phases, unimplemented acceptance criteria, and scope drift.
 argument-hint: [path/to/plan.md|auto]
+---
 
 # Plan Compliance Review
 
