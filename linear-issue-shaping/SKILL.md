@@ -27,7 +27,7 @@ Convert a plan of record into well-shaped Linear issues with the right granulari
 1. **One issue, one workable unit.** Each issue should be completable in isolation by a single agent or developer. If an issue requires context from another unfinished issue to start, it has a dependency that must be declared.
 2. **Acceptance criteria from the plan, not invented.** Issue acceptance criteria come directly from the plan's phases and acceptance criteria. Do not add criteria the plan does not support.
 3. **Dependencies are explicit.** If issue B cannot start until issue A is done, declare the blocked-by relation. Do not rely on issue ordering alone.
-4. **Traceable to the plan.** Every issue references the plan it was shaped from. The plan is the authority; the issue is the execution unit.
+4. **Traceable to the plan.** Every issue ties back to the plan or authority it was shaped from. When that plan is a file in this repository with a concrete path, use the **Plan Reference** section (see Issue Template). When there is no repo-linked plan, state the source briefly in **Problem** instead—do not add an empty or placeholder Plan Reference section.
 5. **Right-sized, not over-decomposed.** Do not split work into trivially small issues. Each issue should represent a meaningful unit of progress that can be validated.
 
 ## Linear Hierarchy
@@ -52,19 +52,27 @@ Linear provides these organizational levels. Use what fits the work.
 
 ## Issue Template
 
-Each issue description follows this structure:
+Each issue description follows this structure.
+
+**Plan Reference:** Include the `## Plan Reference` section only when there is a plan file **in this repository** with an actual path you can link (e.g. `docs/foo-plan.md`). If the plan lives only outside the repo (Linear doc, Notion, chat, no checked-in plan), **omit the entire Plan Reference section**—no section header, no bullets, no placeholders.
+
+When a repo-linked plan exists, insert Plan Reference immediately after Problem, using this shape:
+
+```markdown
+## Plan Reference
+
+- Plan: `<path to plan file in this repository>`
+- Phase/Component: `<which part of the plan this implements>`
+- Spec Sections: `<relevant spec sections, if applicable>`
+- Reference Implementation: `<path to reference code, if applicable>`
+```
+
+Full template (Problem through Architecture Notes; insert the Plan Reference block from above only when applicable):
 
 ```markdown
 ## Problem
 
 What this issue solves or implements. One paragraph.
-
-## Plan Reference
-
-- Plan: `<path to plan file>`
-- Phase/Component: `<which part of the plan this implements>`
-- Spec Sections: `<relevant spec sections, if applicable>`
-- Reference Implementation: `<path to reference code, if applicable>`
 
 ## Scope
 
