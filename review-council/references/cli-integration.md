@@ -34,8 +34,8 @@ npx @crown-dev-studios/review-council --target "staged changes" --open-html
 
 Built-in defaults:
 - **Claude:** `claude --dangerously-skip-permissions -p "$(cat $CLAUDE_DIR/claude-review-export.md)"`
-- **Codex:** `codex exec --full-auto "$(cat $CODEX_DIR/codex-review-export.md)"`
-- **Judge:** `codex exec --full-auto "$(cat $JUDGE_DIR/judge.md)"`
+- **Codex:** `codex exec --dangerously-bypass-approvals-and-sandbox "$(cat $CODEX_DIR/codex-review-export.md)"`
+- **Judge:** `codex exec --dangerously-bypass-approvals-and-sandbox "$(cat $JUDGE_DIR/judge.md)"`
 
 Use `--claude-command`, `--codex-command`, or `--judge-command` to override any default.
 
@@ -101,7 +101,7 @@ The orchestrator monitors each reviewer's stdout for prompt-like output (lines e
 
 If both reviewers prompt simultaneously, questions are queued and presented one at a time.
 
-This is a best-effort safety net. Prefer explicit non-interactive mode (`claude --dangerously-skip-permissions -p`, `codex exec --full-auto`) when possible.
+This is a best-effort safety net. Prefer explicit non-interactive mode (`claude --dangerously-skip-permissions -p`, `codex exec --dangerously-bypass-approvals-and-sandbox`) when possible.
 
 ### Partial Judge Execution
 
@@ -117,4 +117,3 @@ The orchestrator waits for:
 - judge `done.json`
 
 If a process exits `0` but omits `done.json`, the stage is treated as incomplete.
-

@@ -135,7 +135,7 @@ Add `docs/reviews/` to `.gitignore` to keep review artifacts out of version cont
 - Do not create files in `todos/` — the judge recommends todos and Review Council derives `follow-ups.md`, but neither creates authoritative todo files.
 - Skills are passed to each model reviewer as additional review lenses for the run, not inlined prompt bodies.
 - Model reviewers (Claude, Codex) run as CLI processes via the TS orchestrator.
-- Interactive prompts from reviewer CLIs are detected and relayed; prefer explicit non-interactive mode (`claude --dangerously-skip-permissions -p`, `codex exec --full-auto`) for reliability.
+- Interactive prompts from reviewer CLIs are detected and relayed; prefer explicit non-interactive mode (`claude --dangerously-skip-permissions -p`, `codex exec --dangerously-bypass-approvals-and-sandbox`) for reliability.
 
 ## Supporting Files
 

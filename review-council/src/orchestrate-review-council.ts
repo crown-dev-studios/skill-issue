@@ -120,8 +120,8 @@ const JUDGE_PROFILE_TEMPLATES: Record<string, string> = {
 };
 
 const DEFAULT_CLAUDE_COMMAND = 'claude --dangerously-skip-permissions -p "$(cat $CLAUDE_DIR/claude-review-export.md)"';
-const DEFAULT_CODEX_COMMAND = 'codex exec --full-auto "$(cat $CODEX_DIR/codex-review-export.md)"';
-const DEFAULT_JUDGE_COMMAND = 'codex exec --full-auto "$(cat $JUDGE_DIR/judge.md)"';
+const DEFAULT_CODEX_COMMAND = 'codex exec --dangerously-bypass-approvals-and-sandbox "$(cat $CODEX_DIR/codex-review-export.md)"';
+const DEFAULT_JUDGE_COMMAND = 'codex exec --dangerously-bypass-approvals-and-sandbox "$(cat $JUDGE_DIR/judge.md)"';
 
 function nowIso(): string {
   return new Date().toISOString();

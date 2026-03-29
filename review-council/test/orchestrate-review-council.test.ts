@@ -100,6 +100,14 @@ describe("parseCliOptions", () => {
     assert.ok(result.claudeCommand?.includes("claude"));
     assert.ok(result.codexCommand?.includes("codex"));
     assert.ok(result.judgeCommand?.includes("codex"));
+    assert.match(
+      result.codexCommand ?? "",
+      /--dangerously-bypass-approvals-and-sandbox/,
+    );
+    assert.match(
+      result.judgeCommand ?? "",
+      /--dangerously-bypass-approvals-and-sandbox/,
+    );
     assert.doesNotMatch(result.codexCommand ?? "", /last-message\.txt/);
     assert.doesNotMatch(result.judgeCommand ?? "", /last-message\.txt/);
   });
