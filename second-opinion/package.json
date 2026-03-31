@@ -1,6 +1,6 @@
 {
   "name": "@crown-dev-studios/second-opinion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CLI for getting a second opinion on the current Claude Code or Codex conversation.",
   "packageManager": "pnpm@10.30.3",
   "type": "module",
