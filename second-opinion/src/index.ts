@@ -29,8 +29,6 @@ function parseCliArgs() {
       reviewer: { type: "string", short: "r" },
       focus: { type: "string", short: "f" },
       cwd: { type: "string" },
-      "claude-command": { type: "string" },
-      "codex-command": { type: "string" },
       "timeout-ms": { type: "string", default: "300000" },
       "extract-only": { type: "boolean", default: false },
       "include-thinking": { type: "boolean", default: false },
@@ -50,8 +48,6 @@ Options:
   -r, --reviewer claude|codex  Force reviewer (defaults to opposite of source)
   -f, --focus "..."            Custom review focus
   --cwd <dir>                  Working directory for reviewer execution
-  --claude-command <command>   Override the Claude reviewer command template
-  --codex-command <command>    Override the Codex reviewer command template
   --timeout-ms <n>             Reviewer timeout in ms (default: 300000)
   --extract-only               Print extracted conversation without review
   --include-thinking           Include chain-of-thought in the forwarded context
@@ -102,8 +98,6 @@ Examples:
     reviewer: values.reviewer as Source | undefined,
     focus,
     cwd: values.cwd ?? process.cwd(),
-    claudeCommand: values["claude-command"] ?? process.env.SECOND_OPINION_CLAUDE_COMMAND,
-    codexCommand: values["codex-command"] ?? process.env.SECOND_OPINION_CODEX_COMMAND,
     timeoutMs,
     extractOnly: values["extract-only"] ?? false,
     includeThinking: values["include-thinking"] ?? false,
@@ -163,11 +157,9 @@ async function main() {
 
   // Build prompt and call reviewer
   const prompt = buildReviewPrompt(conversation, args.focus);
-  const commandTemplate = reviewer === "claude" ? args.claudeCommand : args.codexCommand;
   const result = await callReviewer(prompt, reviewer, {
     cwd: args.cwd,
     timeoutMs: args.timeoutMs,
-    commandTemplate,
   });
   if (!result.ok) {
     console.error(`ERROR: ${result.error}`);

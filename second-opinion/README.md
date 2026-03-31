@@ -9,7 +9,6 @@ Use it when you want a fresh review of the active Claude Code or Codex thread wi
 - Node.js 20+
 - `claude` and/or `codex` on `PATH`
 - reviewer CLIs already authenticated
-- `/bin/zsh` available for command-template execution
 
 ## Install
 
@@ -72,8 +71,6 @@ pnpm --dir /absolute/path/to/second-opinion start -- --cwd "$PWD"
 --reviewer claude|codex        Force reviewer (defaults to the opposite source)
 --focus "..."                  Review focus
 --cwd <dir>                    Working directory for reviewer execution
---claude-command <command>     Override the Claude reviewer command template
---codex-command <command>      Override the Codex reviewer command template
 --timeout-ms <n>               Reviewer timeout in milliseconds (default: 300000)
 --extract-only                 Print the extracted conversation without calling a reviewer
 --include-thinking             Include reasoning/chain-of-thought in the forwarded context
@@ -81,22 +78,14 @@ pnpm --dir /absolute/path/to/second-opinion start -- --cwd "$PWD"
 --help                         Show help
 ```
 
-## Command Templates
+## Reviewer Runtime
 
-Default commands are intentionally headless and read the rendered review prompt from stdin:
+The built-in reviewer commands are fixed and always use structured stdout:
 
-- Claude: `claude -p --disable-slash-commands`
-- Codex: `codex exec --skip-git-repo-check -`
+- Claude: `claude --dangerously-skip-permissions --verbose --output-format stream-json --include-partial-messages -p`
+- Codex: `codex exec --json --dangerously-bypass-approvals-and-sandbox`
 
-Template placeholders:
-
-- `{prompt_file}`: shell-escaped prompt file path
-- `{cwd}`: shell-escaped working directory
-- `{reviewer}`: reviewer name
-
-The default runtime writes the prompt to the reviewer process over stdin. `{prompt_file}` is available for custom templates that explicitly want a file-backed prompt.
-
-You can also set `SECOND_OPINION_CLAUDE_COMMAND` or `SECOND_OPINION_CODEX_COMMAND` in the environment.
+The CLI writes the review prompt to stdin and parses the JSONL stream to return the assistant's final review text.
 
 ## Development
 

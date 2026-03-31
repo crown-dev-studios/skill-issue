@@ -44,7 +44,7 @@ npx @crown-dev-studios/second-opinion --cwd "$PWD" --source SOURCE --session-id 
 - When this skill runs inside Claude, pass `--source claude --session-id "${CLAUDE_SESSION_ID}"` so Codex reviews the current Claude session deterministically.
 - When this skill runs inside Codex, pass `--source codex --session-id "${CODEX_THREAD_ID}"` so Claude reviews the current Codex thread deterministically.
 - The caller must pass both `--source` and `--session-id` explicitly. The CLI does not auto-detect them.
-- The script calls the other CLI in a new local `/bin/zsh -lc` subprocess.
+- The script calls the other CLI directly as a subprocess and parses its structured JSONL output.
 - It reads the full session file from disk (not affected by context compaction).
 - Timeout is 5 minutes by default. Override with `--timeout-ms` if needed.
 - For local development from a source checkout, anchor the command to that checkout, for example `pnpm --dir /absolute/path/to/second-opinion start -- --cwd "$PWD"`.
@@ -58,27 +58,17 @@ The script supports these flags for advanced use:
 - `--source claude|codex` — Source conversation to review
 - `--session-id <id>` — Session or thread ID to review
 - `--reviewer claude|codex` — Force which CLI does the review (defaults to the opposite of source)
-- `--claude-command <command>` — Override the Claude reviewer command template
-- `--codex-command <command>` — Override the Codex reviewer command template
 - `--timeout-ms <n>` — Reviewer timeout in milliseconds (default: 300000)
 - `--include-thinking` — Include chain-of-thought reasoning in the review context
 - `--extract-only` — Just print the extracted conversation without calling a reviewer
 - `--max-chars N` — Max conversation characters to send (default: 200000)
 
-Command templates support these placeholders:
-
-- `{prompt_file}` — Shell-escaped path to the rendered review prompt file
-- `{cwd}` — Shell-escaped working directory
-- `{reviewer}` — Reviewer name (`claude` or `codex`)
-
 Defaults:
 
-- Claude: `claude -p --disable-slash-commands`
-- Codex: `codex exec --skip-git-repo-check -`
+- Claude: `claude --dangerously-skip-permissions --verbose --output-format stream-json --include-partial-messages -p`
+- Codex: `codex exec --json --dangerously-bypass-approvals-and-sandbox`
 
-By default the review prompt is written to the reviewer process over stdin. `{prompt_file}` is still available for custom command templates that want a file-backed prompt.
-
-You can also set `SECOND_OPINION_CLAUDE_COMMAND` or `SECOND_OPINION_CODEX_COMMAND` in the environment instead of passing the flags.
+The review prompt is written to reviewer stdin, and the CLI parses the structured JSONL response to return the final assistant review text.
 
 ## Deterministic Session Selection
 
@@ -118,7 +108,7 @@ The review script should resolve sessions from the explicit `--source` and `--se
 2. Parses all user messages, assistant responses, chain-of-thought, and tool usage
 3. Strips system prompts, permission blocks, and injection artifacts
 4. Truncates intelligently if the conversation exceeds the context limit (keeps beginning + end)
-5. Sends to the other CLI in a fresh local shell session:
+5. Sends to the other CLI as a direct subprocess:
    - If in Claude Code → `codex exec` for review
    - If in Codex → `claude -p` for review
-6. Returns the structured review
+6. Parses the structured JSONL response and returns the final review text

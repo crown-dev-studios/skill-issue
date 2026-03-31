@@ -1,21 +1,12 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 
 export type Reviewer = "claude" | "codex";
-
-const DEFAULT_COMMANDS: Record<Reviewer, string> = {
-  claude: "claude -p --disable-slash-commands",
-  codex: "codex exec --skip-git-repo-check -",
-};
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 
 export interface ReviewerOptions {
   cwd: string;
   timeoutMs?: number;
-  commandTemplate?: string;
 }
 
 export interface ReviewSuccess {
@@ -33,6 +24,13 @@ export interface ReviewFailure {
 }
 
 export type ReviewResult = ReviewSuccess | ReviewFailure;
+
+interface ReviewerInvocation {
+  executable: string;
+  args: string[];
+}
+
+type JsonRecord = Record<string, unknown>;
 
 export function buildReviewPrompt(conversation: string, focus?: string): string {
   const focusInstruction = focus
@@ -81,18 +79,119 @@ ${conversation}
 Provide your review now. Be specific — reference exact claims, code, or suggestions. Do not be generic.`;
 }
 
-function formatCommand(template: string, context: Record<string, string>): string {
-  return template.replaceAll(/\{([a-z_]+)\}/g, (_match, key: string) => {
-    const value = context[key];
-    if (!value) {
-      throw new Error(`missing placeholder in command template: ${key}`);
-    }
-    return value;
-  });
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
+function quoteCommandPart(value: string): string {
+  return /^[A-Za-z0-9_./:=,-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function formatCommand(executable: string, args: string[]): string {
+  return [executable, ...args].map(quoteCommandPart).join(" ");
+}
+
+function createReviewerInvocation(reviewer: Reviewer): ReviewerInvocation {
+  if (reviewer === "claude") {
+    return {
+      executable: "claude",
+      args: [
+        "--dangerously-skip-permissions",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        "--include-partial-messages",
+        "-p",
+      ],
+    };
+  }
+
+  return {
+    executable: "codex",
+    args: ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox"],
+  };
+}
+
+function extractTextBlocks(content: unknown): string {
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  const parts: string[] = [];
+  for (const block of content) {
+    if (!isRecord(block)) {
+      continue;
+    }
+
+    const type = typeof block.type === "string" ? block.type : "";
+    if ((type === "text" || type === "output_text") && typeof block.text === "string") {
+      parts.push(block.text);
+    }
+  }
+
+  return parts.join("");
+}
+
+function collectAssistantMessages(node: unknown, messages: string[]): void {
+  if (!isRecord(node)) {
+    return;
+  }
+
+  if (node.role === "assistant") {
+    const text = extractTextBlocks(node.content);
+    if (text.trim()) {
+      messages.push(text);
+    }
+  }
+
+  for (const key of ["message", "payload", "item", "response", "delta"]) {
+    collectAssistantMessages(node[key], messages);
+  }
+}
+
+function collectTextDeltas(node: unknown, fragments: string[]): void {
+  if (!isRecord(node)) {
+    return;
+  }
+
+  const type = typeof node.type === "string" ? node.type : "";
+  if ((type === "text_delta" || type === "output_text_delta") && typeof node.text === "string") {
+    fragments.push(node.text);
+  }
+
+  for (const key of ["message", "payload", "item", "response", "delta"]) {
+    collectTextDeltas(node[key], fragments);
+  }
+}
+
+function extractStructuredReview(stdout: string): string | null {
+  const messages: string[] = [];
+  const deltas: string[] = [];
+
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    collectAssistantMessages(parsed, messages);
+    collectTextDeltas(parsed, deltas);
+  }
+
+  const message = messages.at(-1)?.trim();
+  if (message) {
+    return message;
+  }
+
+  const deltaText = deltas.join("").trim();
+  return deltaText || null;
 }
 
 async function callLocalReviewer(
@@ -100,97 +199,99 @@ async function callLocalReviewer(
   reviewer: Reviewer,
   options: ReviewerOptions
 ): Promise<ReviewResult> {
-  const commandTemplate = options.commandTemplate ?? DEFAULT_COMMANDS[reviewer];
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const tempDir = await mkdtemp(join(tmpdir(), `second-opinion-${reviewer}-`));
-  const promptFile = join(tempDir, `${reviewer}-review-prompt.md`);
+  const invocation = createReviewerInvocation(reviewer);
+  const command = formatCommand(invocation.executable, invocation.args);
 
-  try {
-    await writeFile(promptFile, prompt, "utf8");
-
-    const command = formatCommand(commandTemplate, {
-      prompt_file: shellQuote(promptFile),
-      cwd: shellQuote(options.cwd),
-      reviewer,
+  return await new Promise((resolve) => {
+    const child = spawn(invocation.executable, invocation.args, {
+      cwd: options.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
     });
-    return await new Promise((resolve) => {
-      const child = spawn("/bin/zsh", ["-lc", command], {
-        cwd: options.cwd,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      let stdout = "";
-      let stderr = "";
-      let timedOut = false;
-      let killTimer: ReturnType<typeof setTimeout> | null = null;
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
 
-      child.stdout.on("data", (chunk: Buffer) => {
-        stdout += chunk.toString();
-      });
-      child.stderr.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString();
-      });
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
 
-      child.stdin.write(prompt);
-      child.stdin.end();
+    child.stdin.write(prompt);
+    child.stdin.end();
 
-      const timeoutId = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGTERM");
-        killTimer = setTimeout(() => {
-          try {
-            child.kill("SIGKILL");
-          } catch {
-            // Process already exited.
-          }
-        }, 5000);
-      }, timeoutMs);
-
-      child.once("error", (err) => {
-        clearTimeout(timeoutId);
-        if (killTimer) clearTimeout(killTimer);
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code === "ENOENT") {
-          resolve({
-            ok: false,
-            error: "Could not launch /bin/zsh for reviewer command.",
-            command,
-            reviewer,
-          });
-          return;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Process already exited.
         }
-        resolve({ ok: false, error: err.message, command, reviewer });
-      });
+      }, 5000);
+    }, timeoutMs);
 
-      child.once("close", (code) => {
-        clearTimeout(timeoutId);
-        if (killTimer) clearTimeout(killTimer);
+    child.once("error", (err) => {
+      clearTimeout(timeoutId);
+      if (killTimer) clearTimeout(killTimer);
 
-        if (timedOut) {
-          resolve({
-            ok: false,
-            error: `Review timed out after ${timeoutMs} ms.`,
-            command,
-            reviewer,
-          });
-          return;
-        }
-
-        if (code === 0) {
-          resolve({ ok: true, text: stdout, command, reviewer });
-          return;
-        }
-
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
         resolve({
           ok: false,
-          error: stderr.trim() || stdout.trim() || `Reviewer exited with code ${code ?? 1}.`,
+          error: `Could not launch ${invocation.executable}. Make sure it is installed and on PATH.`,
           command,
           reviewer,
         });
+        return;
+      }
+
+      resolve({ ok: false, error: err.message, command, reviewer });
+    });
+
+    child.once("close", (code) => {
+      clearTimeout(timeoutId);
+      if (killTimer) clearTimeout(killTimer);
+
+      if (timedOut) {
+        resolve({
+          ok: false,
+          error: `Review timed out after ${timeoutMs} ms.`,
+          command,
+          reviewer,
+        });
+        return;
+      }
+
+      const text = extractStructuredReview(stdout);
+
+      if (code === 0 && text) {
+        resolve({ ok: true, text, command, reviewer });
+        return;
+      }
+
+      if (code === 0) {
+        resolve({
+          ok: false,
+          error: "Reviewer exited successfully but did not emit a structured assistant review.",
+          command,
+          reviewer,
+        });
+        return;
+      }
+
+      resolve({
+        ok: false,
+        error: stderr.trim() || text || `Reviewer exited with code ${code ?? 1}.`,
+        command,
+        reviewer,
       });
     });
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
+  });
 }
 
 export function callReviewer(
