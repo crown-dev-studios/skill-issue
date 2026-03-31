@@ -24,9 +24,15 @@
     "typecheck": "tsc --noEmit",
     "prepack": "pnpm run build",
     "pack:dry-run": "npm_config_cache=.npm-cache npm pack --dry-run --json",
+    "verify:package": "pnpm run pack:dry-run",
     "start": "tsx src/index.ts",
     "pretest": "pnpm build",
-    "test": "pnpm run typecheck && node --test --test-concurrency=1 test/*.test.mjs"
+    "test": "pnpm run typecheck && node --test --test-concurrency=1 test/*.test.mjs",
+    "release:preflight": "bash scripts/prepare-release.sh",
+    "release:check-version": "bash scripts/check-version.sh",
+    "release:bump": "bash scripts/bump-version.sh",
+    "release:deploy": "bash scripts/deploy.sh",
+    "release:manual": "bash scripts/prepare-release.sh"
   },
   "devDependencies": {
     "typescript": "^5.9.0",
