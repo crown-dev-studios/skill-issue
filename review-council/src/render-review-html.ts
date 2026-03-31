@@ -139,6 +139,12 @@ function stageStatusRow(name: string, status: JsonObject): string {
     if (Array.isArray(status.missing_artifacts) && status.missing_artifacts.length > 0) {
       details.push(`${status.missing_artifacts.length} missing artifact(s)`);
     }
+    if (typeof status.stream_parse_errors === "number" && status.stream_parse_errors > 0) {
+      details.push(`${status.stream_parse_errors} stream parse error(s)`);
+    }
+    if (Array.isArray(status.warnings) && status.warnings.length > 0) {
+      details.push(`${status.warnings.length} warning(s)`);
+    }
   }
 
   const detailSpan = details.length > 0
@@ -181,6 +187,15 @@ function buildDiagnostics(runDir: string, statuses: Record<string, JsonObject>):
       parts.push("</ul>");
     }
 
+    if (Array.isArray(status.warnings) && status.warnings.length > 0) {
+      parts.push("<p><strong>Warnings:</strong></p><ul>");
+      for (const warning of status.warnings) {
+        if (typeof warning !== "string") continue;
+        parts.push(`<li>${htmlEscape(warning)}</li>`);
+      }
+      parts.push("</ul>");
+    }
+
     if (Array.isArray(status.missing_artifacts) && status.missing_artifacts.length > 0) {
       const missingArtifacts = status.missing_artifacts as string[];
       parts.push("<p><strong>Missing artifacts:</strong></p><ul>");
@@ -190,6 +205,22 @@ function buildDiagnostics(runDir: string, statuses: Record<string, JsonObject>):
       parts.push("</ul>");
     }
 
+    const lastActivityAt = typeof status.last_activity_at === "string" ? status.last_activity_at : "";
+    const lastEventType = typeof status.last_event_type === "string" ? status.last_event_type : "";
+    const streamEventCount = typeof status.stream_event_count === "number" ? status.stream_event_count : null;
+    const streamParseErrors = typeof status.stream_parse_errors === "number" ? status.stream_parse_errors : null;
+
+    const executionSummary = [
+      streamEventCount !== null ? `stream events: ${streamEventCount}` : "",
+      streamParseErrors !== null ? `stream parse errors: ${streamParseErrors}` : "",
+      lastActivityAt ? `last activity: ${lastActivityAt}` : "",
+      lastEventType ? `last event: ${lastEventType}` : "",
+    ].filter(Boolean);
+
+    if (executionSummary.length > 0) {
+      parts.push(`<p><strong>Execution:</strong> ${htmlEscape(executionSummary.join(" · "))}</p>`);
+    }
+
     const stageDir = resolve(runDir, stage);
     const excerpt = stderrExcerpt(stageDir);
     if (excerpt) {
@@ -197,11 +228,12 @@ function buildDiagnostics(runDir: string, statuses: Record<string, JsonObject>):
       parts.push(`<pre class="stderr-excerpt">${htmlEscape(excerpt)}</pre>`);
     }
 
-    const stdoutLog = typeof status.stdout_log === "string" ? status.stdout_log : "";
+    const streamLog = typeof status.stream_log === "string" ? status.stream_log : "";
     const stderrLog = typeof status.stderr_log === "string" ? status.stderr_log : "";
-    if (stdoutLog || stderrLog) {
+
+    if (streamLog || stderrLog) {
       parts.push('<div class="log-paths">');
-      if (stdoutLog) parts.push(`<code>${htmlEscape(stdoutLog)}</code>`);
+      if (streamLog) parts.push(`<code>${htmlEscape(streamLog)}</code>`);
       if (stderrLog) parts.push(`<code>${htmlEscape(stderrLog)}</code>`);
       parts.push("</div>");
     }

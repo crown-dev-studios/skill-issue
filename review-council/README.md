@@ -14,9 +14,9 @@ The orchestrator handles the happy path and common failure modes:
 
 - Stage timeouts with two-phase kill (SIGTERM then SIGKILL) prevent hung runs
 - Automatic retry with exponential backoff handles transient failures
-- Interactive prompts from reviewer CLIs are detected and relayed to the user
+- Every stage emits a JSONL stdout event stream for diagnosis
 - Partial reviewer failure still allows the judge to run on available data
-- Failed stages surface stderr excerpts and validation errors in the HTML report
+- Failed stages surface stderr excerpts, validation errors, warnings, and stream log paths in the HTML report
 
 ## Requirements
 
@@ -66,18 +66,13 @@ Main outputs:
 --retries <n>                     Max retries per stage on failure (default: 2)
 ```
 
-### Overrides (optional)
+### Execution Contract
 
-```
---claude-command <command>        Override default Claude reviewer command
---codex-command <command>         Override default Codex reviewer command
---judge-command <command>         Override default judge command
---allow-missing-sentinel          Treat exit code 0 as success without done.json
-```
+There are no command override or sentinel bypass flags. Review Council uses canonical built-in execution metadata for Claude, Codex, and the judge, and every executable stage still requires exit code `0` plus its expected artifacts plus `done.json`.
 
 ## Operational Rules
 
-- Use non-interactive reviewer commands when possible. Interactive prompts are detected and relayed to the user, but explicit non-interactive mode is more reliable.
+- Built-in reviewer commands are non-interactive and emit JSONL to stdout.
 - Keep reviewer artifacts inside the run directory.
 - Selected skills are passed into reviewer prompts as additional review lenses for the run; the orchestrator does not inline local `SKILL.md` contents.
 - Do not create authoritative files in `todos/` during raw review.
@@ -90,9 +85,9 @@ If a run fails or stalls, inspect:
 - `<run>/claude/status.json`
 - `<run>/codex/status.json`
 - `<run>/judge/status.json`
-- each stage's `stdout.log` and `stderr.log`
+- each stage's `stream.jsonl` and `stderr.log`
 
-The `status.json` for each stage includes `exit_code`, `timed_out`, `attempts`, `retried`, and `validation_errors` fields. The HTML report surfaces stderr excerpts and validation errors for failed stages in a diagnostics section.
+The `status.json` for each stage includes `exit_code`, `timed_out`, `attempts`, `missing_artifacts`, and `validation_errors`. Stages additionally record stream artifact paths, `last_activity_at`, `last_event_type`, `stream_event_count`, `stream_parse_errors`, and optional warnings.
 
 If a stage exits `0` but does not write `done.json`, the stage is incomplete and the run should be treated as failed.
 
@@ -135,4 +130,3 @@ Update [`package.json`](package.json) `repository` / `homepage` / `bugs` if the 
 - [references/output-contract.md](references/output-contract.md)
 - [src/orchestrate-review-council.ts](src/orchestrate-review-council.ts)
 - [src/render-review-html.ts](src/render-review-html.ts)
-- [src/interaction-queue.ts](src/interaction-queue.ts)

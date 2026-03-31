@@ -4,15 +4,13 @@ import { basename, resolve } from "node:path";
 import { finished } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { close as closeInteractionQueue, enqueue } from "./interaction-queue.js";
 import {
   buildReviewPaths,
   createRunId,
   normalizeReviewTarget,
 } from "./review-session.js";
 import { renderRunDir, writeFollowUpsMarkdown } from "./render-review-html.js";
-
-type StageName = "claude" | "codex" | "judge";
+import { createStageExecution, type StageExecution, type StageName } from "./stage-runtime.js";
 
 interface PromptSelection {
   templatePath: string;
@@ -22,8 +20,7 @@ interface PromptSelection {
 
 export interface StageDefinition {
   name: StageName;
-  displayName: string;
-  command?: string;
+  execution: StageExecution;
   stageDir: string;
   promptOutputName: string;
   promptTemplatePath: string;
@@ -38,8 +35,18 @@ export interface StageAttemptResult {
   timedOut: boolean;
   startedAt: string;
   finishedAt: string;
-  stdoutPath: string;
+  streamPath: string;
   stderrPath: string;
+  lastActivityAt?: string;
+  lastEventType?: string;
+  streamEventCount: number;
+  streamParseErrors: number;
+  warnings: string[];
+}
+
+interface ValidationError {
+  path: string;
+  message: string;
 }
 
 interface StageEvaluation {
@@ -47,6 +54,7 @@ interface StageEvaluation {
   failureReason?: "process_failed" | "timeout" | "missing_artifacts" | "invalid_artifacts";
   artifactPresence: Record<string, boolean>;
   missingArtifacts: string[];
+  validationErrors: ValidationError[];
 }
 
 export interface StageResult {
@@ -58,20 +66,19 @@ export interface StageResult {
   failure_reason?: StageEvaluation["failureReason"];
   missing_artifacts?: string[];
   artifact_presence?: Record<string, boolean>;
+  validation_errors?: ValidationError[];
 }
 
 interface CliOptions {
   target: string;
   runDir?: string;
+  enableClaude: boolean;
+  enableCodex: boolean;
   reviewProfileId: string;
   judgeProfileId: string;
   claudePromptTemplate?: string;
   codexPromptTemplate?: string;
   judgePromptTemplate?: string;
-  claudeCommand?: string;
-  codexCommand?: string;
-  judgeCommand?: string;
-  allowMissingSentinel: boolean;
   skipJudge: boolean;
   skipHtml: boolean;
   openHtml: boolean;
@@ -93,7 +100,6 @@ interface PreparedRun {
   reviewTarget: string;
   runId: string;
   judgeEnabled: boolean;
-  requireSentinel: boolean;
   paths: ReturnType<typeof buildReviewPaths>;
   promptSelections: PromptSelections;
   commandEnv: Record<string, string>;
@@ -107,9 +113,6 @@ interface ReviewerExecution {
   reviewersPartial: boolean;
 }
 
-const INTERACTIVE_PROMPT_RE = /(\? |: |> |y\/n|yes\/no)\s*$/i;
-const PROMPT_SILENCE_MS = 3000;
-const PROMPT_CHECK_INTERVAL_MS = 2000;
 const DEFAULT_TIMEOUT_MS = 300000;
 const DEFAULT_MAX_RETRIES = 2;
 const REVIEW_PROFILE_TEMPLATES: Record<string, string> = {
@@ -118,10 +121,6 @@ const REVIEW_PROFILE_TEMPLATES: Record<string, string> = {
 const JUDGE_PROFILE_TEMPLATES: Record<string, string> = {
   default: "judge.md",
 };
-
-const DEFAULT_CLAUDE_COMMAND = 'claude --dangerously-skip-permissions -p "$(cat $CLAUDE_DIR/claude-review-export.md)"';
-const DEFAULT_CODEX_COMMAND = 'codex exec --dangerously-bypass-approvals-and-sandbox "$(cat $CODEX_DIR/codex-review-export.md)"';
-const DEFAULT_JUDGE_COMMAND = 'codex exec --dangerously-bypass-approvals-and-sandbox "$(cat $JUDGE_DIR/judge.md)"';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -252,69 +251,105 @@ function resolvePromptSelection(
   };
 }
 
-function cleanupStageFiles(stageDir: string, artifactNames: string[]): void {
-  for (const fileName of [
-    "stdout.log",
-    "stderr.log",
-    "status.json",
-    "done.json",
-    ...artifactNames,
-  ]) {
-    rmSync(resolve(stageDir, fileName), { force: true, recursive: false });
+function cleanupStageFiles(stage: StageDefinition): void {
+  const artifactPaths = new Set<string>([
+    stage.execution.artifacts.streamLog,
+    stage.execution.artifacts.stderrLog,
+    resolve(stage.stageDir, "status.json"),
+    resolve(stage.stageDir, "done.json"),
+    ...stage.requiredArtifacts.map((artifactName) => resolve(stage.stageDir, artifactName)),
+  ]);
+
+  for (const artifactPath of artifactPaths) {
+    rmSync(artifactPath, { force: true, recursive: false });
   }
 }
 
+
+function extractEventType(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const type = (value as Record<string, unknown>).type;
+  return typeof type === "string" && type.length > 0 ? type : undefined;
+}
+
 async function runStageOnce(
-  name: string,
-  command: string,
-  stageDir: string,
+  stage: StageDefinition,
   workdir: string,
   timeoutMs: number,
   commandEnv: Record<string, string>,
 ): Promise<StageAttemptResult> {
-  const stdoutPath = resolve(stageDir, "stdout.log");
-  const stderrPath = resolve(stageDir, "stderr.log");
+  const { execution } = stage;
+  const streamPath = execution.artifacts.streamLog;
+  const stderrPath = execution.artifacts.stderrLog;
   const startedAt = nowIso();
 
-  const stdoutFile = createWriteStream(stdoutPath);
+  const streamFile = createWriteStream(streamPath);
   const stderrFile = createWriteStream(stderrPath);
-  const child = spawn("/bin/sh", ["-c", command], {
+
+  const child = spawn("/bin/sh", ["-c", execution.command], {
     cwd: workdir,
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, ...commandEnv },
   });
 
-  child.stdout.pipe(stdoutFile);
-  child.stderr.pipe(stderrFile);
+  child.stdin.end();
 
-  const rollingBufferSize = 1024;
-  let recentOutput = "";
-  let lastOutputTime = 0;
+  const warnings: string[] = [];
+  let lastActivityAt: string | undefined;
+  let lastEventType: string | undefined;
+  let streamBuffer = "";
+  let streamEventCount = 0;
+  let streamParseErrors = 0;
+
+  const recordActivity = (eventType?: string): void => {
+    lastActivityAt = nowIso();
+    if (eventType) {
+      lastEventType = eventType;
+    }
+  };
+
+  const processStructuredLine = (line: string): void => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    recordActivity(lastEventType);
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      streamEventCount += 1;
+      lastEventType = extractEventType(parsed) ?? "stream-event";
+    } catch {
+      streamParseErrors += 1;
+      lastEventType = "stream-parse-error";
+      warnings.push(`Failed to parse ${stage.name} stream output line ${streamParseErrors}.`);
+    }
+  };
 
   child.stdout.on("data", (chunk: Buffer) => {
-    recentOutput = (recentOutput + chunk.toString()).slice(-rollingBufferSize);
-    lastOutputTime = Date.now();
+    streamFile.write(chunk);
+
+    const text = chunk.toString();
+    streamBuffer += text;
+    while (true) {
+      const newlineIndex = streamBuffer.indexOf("\n");
+      if (newlineIndex === -1) {
+        break;
+      }
+
+      const line = streamBuffer.slice(0, newlineIndex);
+      streamBuffer = streamBuffer.slice(newlineIndex + 1);
+      processStructuredLine(line);
+    }
   });
 
-  const promptInterval = setInterval(() => {
-    if (
-      lastOutputTime > 0 &&
-      Date.now() - lastOutputTime > PROMPT_SILENCE_MS &&
-      INTERACTIVE_PROMPT_RE.test(recentOutput) &&
-      child.stdin.writable
-    ) {
-      const promptText = recentOutput;
-      recentOutput = "";
-      lastOutputTime = 0;
-
-      enqueue({
-        stage: name,
-        prompt: promptText,
-        stdinPipe: child.stdin,
-        resolve: () => {},
-      });
-    }
-  }, PROMPT_CHECK_INTERVAL_MS);
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderrFile.write(chunk);
+  });
 
   let timedOut = false;
   let killTimer: ReturnType<typeof setTimeout> | null = null;
@@ -337,19 +372,16 @@ async function runStageOnce(
 
   clearTimeout(timeoutTimer);
   if (killTimer) clearTimeout(killTimer);
-  clearInterval(promptInterval);
 
-  try {
-    child.stdin.end();
-  } catch {
-    // The pipe may already be closed.
+  if (streamBuffer.trim().length > 0) {
+    processStructuredLine(streamBuffer);
   }
 
-  stdoutFile.end();
+  streamFile.end();
   stderrFile.end();
 
   await Promise.all([
-    finished(stdoutFile),
+    finished(streamFile),
     finished(stderrFile),
   ]);
 
@@ -358,21 +390,22 @@ async function runStageOnce(
     timedOut,
     startedAt,
     finishedAt: nowIso(),
-    stdoutPath,
+    streamPath,
     stderrPath,
+    lastActivityAt,
+    lastEventType,
+    streamEventCount,
+    streamParseErrors,
+    warnings,
   };
 }
 
 export function evaluateStageArtifacts(
   stage: StageDefinition,
   attempt: StageAttemptResult,
-  requireSentinel: boolean,
 ): StageEvaluation {
   const artifactPresence: Record<string, boolean> = {};
-  const requiredArtifacts = [...stage.requiredArtifacts];
-  if (requireSentinel) {
-    requiredArtifacts.push("done.json");
-  }
+  const requiredArtifacts = [...stage.requiredArtifacts, "done.json"];
 
   for (const artifactName of requiredArtifacts) {
     artifactPresence[artifactName] = existsSync(resolve(stage.stageDir, artifactName));
@@ -386,6 +419,7 @@ export function evaluateStageArtifacts(
       failureReason: "timeout",
       artifactPresence,
       missingArtifacts,
+      validationErrors: [],
     };
   }
 
@@ -395,6 +429,7 @@ export function evaluateStageArtifacts(
       failureReason: "process_failed",
       artifactPresence,
       missingArtifacts,
+      validationErrors: [],
     };
   }
 
@@ -404,19 +439,21 @@ export function evaluateStageArtifacts(
       failureReason: "missing_artifacts",
       artifactPresence,
       missingArtifacts,
+      validationErrors: [],
     };
   }
 
-  const structuredArtifactIsValid = validateJsonArtifact(
+  const validationErrors = validateJsonArtifact(
     resolve(stage.stageDir, stage.jsonArtifactName),
     stage.jsonArtifactName,
   );
-  if (!structuredArtifactIsValid) {
+  if (validationErrors.length > 0) {
     return {
       success: false,
       failureReason: "invalid_artifacts",
       artifactPresence,
       missingArtifacts,
+      validationErrors,
     };
   }
 
@@ -424,27 +461,30 @@ export function evaluateStageArtifacts(
     success: true,
     artifactPresence,
     missingArtifacts,
+    validationErrors: [],
   };
 }
 
 function validateJsonArtifact(
   artifactPath: string,
   artifactName: StageDefinition["jsonArtifactName"],
-): boolean {
+): ValidationError[] {
   let parsed: unknown;
 
   try {
     parsed = JSON.parse(readFileSync(artifactPath, "utf8")) as unknown;
   } catch {
-    return false;
+    return [{ path: "$", message: "File is not valid JSON." }];
   }
 
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return false;
+    return [{ path: "$", message: "Expected a JSON object." }];
   }
 
   if (artifactName === "findings.json") {
-    return Array.isArray((parsed as { findings?: unknown }).findings);
+    return Array.isArray((parsed as { findings?: unknown }).findings)
+      ? []
+      : [{ path: "findings", message: "Expected findings to be an array." }];
   }
 
   const verdict = parsed as {
@@ -453,20 +493,29 @@ function validateJsonArtifact(
     contested_findings?: unknown;
     rejected_findings?: unknown;
   };
+  const errors: ValidationError[] = [];
 
-  return typeof verdict.overall_verdict === "string"
-    && Array.isArray(verdict.confirmed_findings)
-    && Array.isArray(verdict.contested_findings)
-    && Array.isArray(verdict.rejected_findings);
+  if (typeof verdict.overall_verdict !== "string") {
+    errors.push({ path: "overall_verdict", message: "Expected overall_verdict to be a string." });
+  }
+  if (!Array.isArray(verdict.confirmed_findings)) {
+    errors.push({ path: "confirmed_findings", message: "Expected confirmed_findings to be an array." });
+  }
+  if (!Array.isArray(verdict.contested_findings)) {
+    errors.push({ path: "contested_findings", message: "Expected contested_findings to be an array." });
+  }
+  if (!Array.isArray(verdict.rejected_findings)) {
+    errors.push({ path: "rejected_findings", message: "Expected rejected_findings to be an array." });
+  }
+
+  return errors;
 }
 
 function writeStageStatus(
   statusPath: string,
   stage: StageDefinition,
-  command: string,
   attempt: StageAttemptResult,
   evaluation: StageEvaluation,
-  requireSentinel: boolean,
   attempts: number,
 ): void {
   writeFileSync(
@@ -474,18 +523,24 @@ function writeStageStatus(
     `${JSON.stringify(
       {
         stage: stage.name,
-        command,
+        command_id: stage.execution.commandId,
+        command: stage.execution.command,
         started_at: attempt.startedAt,
         finished_at: attempt.finishedAt,
         exit_code: attempt.exitCode,
-        require_sentinel: requireSentinel,
-        done_file_present: evaluation.artifactPresence["done.json"] ?? false,
         success: evaluation.success,
         timed_out: attempt.timedOut,
         attempts,
-        retried: attempts > 1,
-        stdout_log: attempt.stdoutPath,
+        stream_log: attempt.streamPath,
         stderr_log: attempt.stderrPath,
+        last_activity_at: attempt.lastActivityAt,
+        last_event_type: attempt.lastEventType,
+        stream_event_count: attempt.streamEventCount,
+        stream_parse_errors: attempt.streamParseErrors,
+        artifact_presence: evaluation.artifactPresence,
+        missing_artifacts: evaluation.missingArtifacts,
+        validation_errors: evaluation.validationErrors,
+        ...(attempt.warnings.length > 0 ? { warnings: attempt.warnings } : {}),
       },
       null,
       2,
@@ -496,17 +551,11 @@ function writeStageStatus(
 async function runStage(
   stage: StageDefinition,
   workdir: string,
-  requireSentinel: boolean,
   timeoutMs: number,
   maxRetries: number,
   commandEnv: Record<string, string>,
-): Promise<StageResult | null> {
-  if (!stage.command) {
-    return null;
-  }
-
+): Promise<StageResult> {
   const statusPath = resolve(stage.stageDir, "status.json");
-  const command = stage.command;
 
   let attempts = 0;
   let lastAttempt: StageAttemptResult | null = null;
@@ -520,10 +569,10 @@ async function runStage(
     }
 
     attempts = attemptIndex + 1;
-    cleanupStageFiles(stage.stageDir, stage.requiredArtifacts);
-    lastAttempt = await runStageOnce(stage.name, command, stage.stageDir, workdir, timeoutMs, commandEnv);
-    lastEvaluation = evaluateStageArtifacts(stage, lastAttempt, requireSentinel);
-    writeStageStatus(statusPath, stage, command, lastAttempt, lastEvaluation, requireSentinel, attempts);
+    cleanupStageFiles(stage);
+    lastAttempt = await runStageOnce(stage, workdir, timeoutMs, commandEnv);
+    lastEvaluation = evaluateStageArtifacts(stage, lastAttempt);
+    writeStageStatus(statusPath, stage, lastAttempt, lastEvaluation, attempts);
 
     if (lastEvaluation.success || lastAttempt.timedOut) {
       break;
@@ -543,65 +592,75 @@ async function runStage(
     failure_reason: lastEvaluation.failureReason,
     missing_artifacts: lastEvaluation.missingArtifacts,
     artifact_presence: lastEvaluation.artifactPresence,
+    validation_errors: lastEvaluation.validationErrors,
   };
 }
 
 export function parseCliOptions(args: string[]): CliOptions | null {
-  const { values } = parseArgs({
-    args,
-    allowPositionals: false,
-    options: {
-      target: { type: "string" },
-      "run-dir": { type: "string" },
-      "review-profile": { type: "string" },
-      "judge-profile": { type: "string" },
-      "claude-prompt-template": { type: "string" },
-      "codex-prompt-template": { type: "string" },
-      "judge-prompt-template": { type: "string" },
-      "claude-command": { type: "string" },
-      "codex-command": { type: "string" },
-      "judge-command": { type: "string" },
-      "skill-paths": { type: "string" },
-      "no-claude": { type: "boolean" },
-      "no-codex": { type: "boolean" },
-      "allow-missing-sentinel": { type: "boolean" },
-      "skip-judge": { type: "boolean" },
-      "skip-html": { type: "boolean" },
-      "open-html": { type: "boolean" },
-      timeout: { type: "string" },
-      retries: { type: "string" },
-      help: { type: "boolean", short: "h" },
-    },
-  });
+  let values: ReturnType<typeof parseArgs>["values"];
+  const getString = (value: unknown): string | undefined => typeof value === "string" ? value : undefined;
+  const getBoolean = (value: unknown): boolean => value === true;
+
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      options: {
+        target: { type: "string" },
+        "run-dir": { type: "string" },
+        "review-profile": { type: "string" },
+        "judge-profile": { type: "string" },
+        "claude-prompt-template": { type: "string" },
+        "codex-prompt-template": { type: "string" },
+        "judge-prompt-template": { type: "string" },
+        "skill-paths": { type: "string" },
+        "no-claude": { type: "boolean" },
+        "no-codex": { type: "boolean" },
+        "skip-judge": { type: "boolean" },
+        "skip-html": { type: "boolean" },
+        "open-html": { type: "boolean" },
+        timeout: { type: "string" },
+        retries: { type: "string" },
+        help: { type: "boolean", short: "h" },
+      },
+    }));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return null;
+  }
 
   if (values.help) {
     printHelp();
     return null;
   }
 
-  if (!values.target) {
+  const target = getString(values.target);
+  if (!target) {
     console.error("Error: --target is required.");
     printHelp();
     process.exitCode = 1;
     return null;
   }
 
-  const timeoutMs = values.timeout ? parseInt(values.timeout, 10) : DEFAULT_TIMEOUT_MS;
+  const timeoutValue = getString(values.timeout);
+  const timeoutMs = timeoutValue ? parseInt(timeoutValue, 10) : DEFAULT_TIMEOUT_MS;
   if (Number.isNaN(timeoutMs) || timeoutMs <= 0) {
-    console.error(`Invalid --timeout: "${values.timeout}". Must be a positive integer (ms).`);
+    console.error(`Invalid --timeout: "${timeoutValue}". Must be a positive integer (ms).`);
     process.exitCode = 1;
     return null;
   }
 
-  const maxRetries = values.retries ? parseInt(values.retries, 10) : DEFAULT_MAX_RETRIES;
+  const retriesValue = getString(values.retries);
+  const maxRetries = retriesValue ? parseInt(retriesValue, 10) : DEFAULT_MAX_RETRIES;
   if (Number.isNaN(maxRetries) || maxRetries < 0) {
-    console.error(`Invalid --retries: "${values.retries}". Must be a non-negative integer.`);
+    console.error(`Invalid --retries: "${retriesValue}". Must be a non-negative integer.`);
     process.exitCode = 1;
     return null;
   }
 
-  const noClaude = values["no-claude"] ?? false;
-  const noCodex = values["no-codex"] ?? false;
+  const noClaude = getBoolean(values["no-claude"]);
+  const noCodex = getBoolean(values["no-codex"]);
 
   if (noClaude && noCodex) {
     console.error("Cannot use both --no-claude and --no-codex. At least one model reviewer is required.");
@@ -609,22 +668,22 @@ export function parseCliOptions(args: string[]): CliOptions | null {
     return null;
   }
 
+  const skillPathsValue = getString(values["skill-paths"]);
+
   return {
-    target: values.target,
-    runDir: values["run-dir"],
-    reviewProfileId: values["review-profile"] ?? "default",
-    judgeProfileId: values["judge-profile"] ?? "default",
-    claudePromptTemplate: values["claude-prompt-template"],
-    codexPromptTemplate: values["codex-prompt-template"],
-    judgePromptTemplate: values["judge-prompt-template"],
-    claudeCommand: noClaude ? undefined : (values["claude-command"] ?? DEFAULT_CLAUDE_COMMAND),
-    codexCommand: noCodex ? undefined : (values["codex-command"] ?? DEFAULT_CODEX_COMMAND),
-    judgeCommand: values["judge-command"] ?? DEFAULT_JUDGE_COMMAND,
-    allowMissingSentinel: values["allow-missing-sentinel"] ?? false,
-    skipJudge: values["skip-judge"] ?? false,
-    skipHtml: values["skip-html"] ?? false,
-    openHtml: values["open-html"] ?? false,
-    skillPaths: values["skill-paths"] ? normalizeSkillPaths(values["skill-paths"]) : undefined,
+    target,
+    runDir: getString(values["run-dir"]),
+    enableClaude: !noClaude,
+    enableCodex: !noCodex,
+    reviewProfileId: getString(values["review-profile"]) ?? "default",
+    judgeProfileId: getString(values["judge-profile"]) ?? "default",
+    claudePromptTemplate: getString(values["claude-prompt-template"]),
+    codexPromptTemplate: getString(values["codex-prompt-template"]),
+    judgePromptTemplate: getString(values["judge-prompt-template"]),
+    skipJudge: getBoolean(values["skip-judge"]),
+    skipHtml: getBoolean(values["skip-html"]),
+    openHtml: getBoolean(values["open-html"]),
+    skillPaths: skillPathsValue ? normalizeSkillPaths(skillPathsValue) : undefined,
     timeoutMs,
     maxRetries,
   };
@@ -663,19 +722,20 @@ function resolvePromptSelections(
 function createStageDefinitions(
   paths: ReturnType<typeof buildReviewPaths>,
   promptSelections: PromptSelections,
-  commands: Record<StageName, string | undefined>,
+  enabledStages: Record<StageName, boolean>,
   reviewTarget: string,
   reviewSchemaPath: string,
   judgeSchemaPath: string,
   skillReferences: string,
 ): StageDefinition[] {
-  const reviewerStages: StageDefinition[] = [
-    {
+  const reviewerStages: StageDefinition[] = [];
+
+  if (enabledStages.claude) {
+    reviewerStages.push({
       name: "claude",
-      displayName: "Claude",
-      command: commands.claude,
       stageDir: paths.claudeDir,
       promptOutputName: "claude-review-export.md",
+      execution: createStageExecution("claude", paths.claudeDir, "claude-review-export.md"),
       promptTemplatePath: promptSelections.claude.templatePath,
       promptTemplateSource: promptSelections.claude.source,
       requiredArtifacts: ["report.md", "findings.json"],
@@ -690,13 +750,15 @@ function createStageDefinitions(
         REVIEWER_NAME_LOWER: "claude",
         SKILL_REFERENCES: skillReferences,
       },
-    },
-    {
+    });
+  }
+
+  if (enabledStages.codex) {
+    reviewerStages.push({
       name: "codex",
-      displayName: "Codex",
-      command: commands.codex,
       stageDir: paths.codexDir,
       promptOutputName: "codex-review-export.md",
+      execution: createStageExecution("codex", paths.codexDir, "codex-review-export.md"),
       promptTemplatePath: promptSelections.codex.templatePath,
       promptTemplateSource: promptSelections.codex.source,
       requiredArtifacts: ["report.md", "findings.json"],
@@ -711,10 +773,10 @@ function createStageDefinitions(
         REVIEWER_NAME_LOWER: "codex",
         SKILL_REFERENCES: skillReferences,
       },
-    },
-  ];
+    });
+  }
 
-  if (!promptSelections.judge) {
+  if (!enabledStages.judge || !promptSelections.judge) {
     return reviewerStages;
   }
 
@@ -722,10 +784,9 @@ function createStageDefinitions(
     ...reviewerStages,
     {
       name: "judge",
-      displayName: "Judge",
-      command: commands.judge,
       stageDir: paths.judgeDir,
       promptOutputName: "judge.md",
+      execution: createStageExecution("judge", paths.judgeDir, "judge.md"),
       promptTemplatePath: promptSelections.judge.templatePath,
       promptTemplateSource: promptSelections.judge.source,
       requiredArtifacts: ["summary.md", "verdict.json"],
@@ -741,6 +802,23 @@ function createStageDefinitions(
   ];
 }
 
+function serializeExecutionMetadata(stage: StageDefinition | undefined): Record<string, unknown> | null {
+  if (!stage) {
+    return null;
+  }
+
+  return {
+    stage_dir: stage.stageDir,
+    prompt_output_name: stage.promptOutputName,
+    command_id: stage.execution.commandId,
+    command: stage.execution.command,
+    artifacts: {
+      stream_log: stage.execution.artifacts.streamLog,
+      stderr_log: stage.execution.artifacts.stderrLog,
+    },
+  };
+}
+
 function writeRunMetadata(preparedRun: PreparedRun): void {
   const {
     options,
@@ -751,7 +829,10 @@ function writeRunMetadata(preparedRun: PreparedRun): void {
     judgeEnabled,
     paths,
     promptSelections,
+    stageDefinitions,
   } = preparedRun;
+
+  const stageIndex = new Map(stageDefinitions.map((stage) => [stage.name, stage] as const));
 
   writeFileSync(
     resolve(paths.runDir, "run.json"),
@@ -780,10 +861,11 @@ function writeRunMetadata(preparedRun: PreparedRun): void {
             source: promptSelections.judge?.source ?? null,
           },
         },
-        command_templates: {
-          claude: options.claudeCommand ?? null,
-          codex: options.codexCommand ?? null,
-          judge: judgeEnabled ? options.judgeCommand ?? null : null,
+        judge_enabled: judgeEnabled,
+        stage_executions: {
+          claude: serializeExecutionMetadata(stageIndex.get("claude")),
+          codex: serializeExecutionMetadata(stageIndex.get("codex")),
+          judge: serializeExecutionMetadata(stageIndex.get("judge")),
         },
       },
       null,
@@ -799,7 +881,7 @@ function prepareRun(options: CliOptions): PreparedRun | null {
   const reviewTarget = normalizeReviewTarget(options.target);
   const runId = createRunId();
   const paths = buildReviewPaths(cwd, runId, options.runDir);
-  const judgeEnabled = !options.skipJudge && Boolean(options.judgeCommand);
+  const judgeEnabled = !options.skipJudge;
 
   let promptSelections: PromptSelections;
   try {
@@ -828,49 +910,52 @@ function prepareRun(options: CliOptions): PreparedRun | null {
     JUDGE_SCHEMA: judgeSchemaPath,
   };
 
-  const rawCommands: Record<StageName, string | undefined> = {
-    claude: options.claudeCommand,
-    codex: options.codexCommand,
-    judge: judgeEnabled ? options.judgeCommand : undefined,
-  };
-
   const skillReferences = buildSkillReferencesSection(options.skillPaths ?? []);
-  const stageDefinitions = createStageDefinitions(
-    paths,
-    promptSelections,
-    rawCommands,
-    reviewTarget,
-    reviewSchemaPath,
-    judgeSchemaPath,
-    skillReferences,
-  );
+  let stageDefinitions: StageDefinition[];
 
-  for (const stage of stageDefinitions) {
-    renderTemplate(
-      stage.promptTemplatePath,
-      stage.stageVars,
-      resolve(stage.stageDir, stage.promptOutputName),
+  try {
+    stageDefinitions = createStageDefinitions(
+      paths,
+      promptSelections,
+      {
+        claude: options.enableClaude,
+        codex: options.enableCodex,
+        judge: judgeEnabled,
+      },
+      reviewTarget,
+      reviewSchemaPath,
+      judgeSchemaPath,
+      skillReferences,
     );
-  }
 
-  writeRunMetadata({
-    options,
-    cwd,
-    packageDir,
-    reviewTarget,
-    runId,
-    judgeEnabled,
-    requireSentinel: !options.allowMissingSentinel,
-    paths,
-    promptSelections,
-    commandEnv,
-    stageDefinitions,
-  });
-
-  for (const command of Object.values(rawCommands)) {
-    if (command) {
-      assertBinaryExists(command, cwd);
+    for (const stage of stageDefinitions) {
+      renderTemplate(
+        stage.promptTemplatePath,
+        stage.stageVars,
+        resolve(stage.stageDir, stage.promptOutputName),
+      );
     }
+
+    writeRunMetadata({
+      options,
+      cwd,
+      packageDir,
+      reviewTarget,
+      runId,
+      judgeEnabled,
+      paths,
+      promptSelections,
+      commandEnv,
+      stageDefinitions,
+    });
+
+    for (const stage of stageDefinitions) {
+      assertBinaryExists(stage.execution.command, cwd);
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return null;
   }
 
   return {
@@ -880,7 +965,6 @@ function prepareRun(options: CliOptions): PreparedRun | null {
     reviewTarget,
     runId,
     judgeEnabled,
-    requireSentinel: !options.allowMissingSentinel,
     paths,
     promptSelections,
     commandEnv,
@@ -896,7 +980,6 @@ async function runReviewerStages(preparedRun: PreparedRun): Promise<ReviewerExec
       runStage(
         stage,
         preparedRun.cwd,
-        preparedRun.requireSentinel,
         preparedRun.options.timeoutMs,
         preparedRun.options.maxRetries,
         preparedRun.commandEnv,
@@ -904,11 +987,7 @@ async function runReviewerStages(preparedRun: PreparedRun): Promise<ReviewerExec
     ),
   );
 
-  closeInteractionQueue();
-
-  const reviewerResults = results.filter(
-    (result): result is StageResult => result !== null,
-  );
+  const reviewerResults = results;
   const successfulReviewerResults = reviewerResults.filter((result) => result.success);
 
   return {
@@ -945,7 +1024,6 @@ async function runJudgeStage(
   return runStage(
     judgeStage,
     preparedRun.cwd,
-    preparedRun.requireSentinel,
     preparedRun.options.timeoutMs,
     preparedRun.options.maxRetries,
     preparedRun.commandEnv,
@@ -1010,10 +1088,6 @@ options:
   --claude-prompt-template <path>         Override Claude reviewer prompt template
   --codex-prompt-template <path>          Override Codex reviewer prompt template
   --judge-prompt-template <path>          Override judge prompt template
-  --claude-command <command>              Shell command to launch Claude reviewer
-  --codex-command <command>               Shell command to launch Codex reviewer
-  --judge-command <command>               Shell command to launch the judge stage
-  --allow-missing-sentinel                Treat exit code 0 as success without done.json
   --skip-judge                            Skip the judge stage
   --skip-html                             Skip HTML rendering
   --open-html                             Open index.html after rendering (macOS)

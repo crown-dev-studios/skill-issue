@@ -1,10 +1,8 @@
 # CLI Integration
 
-The orchestrator script accepts literal CLI commands with placeholders.
+The orchestrator uses canonical built-in stage commands and execution metadata. Callers can choose which stages run and which prompt templates render, but command choice and sentinel enforcement are no longer user-overridable API surfaces.
 
-Best practice: point reviewer CLIs at the rendered prompt files created inside the run directory. This keeps the command templates self-contained and avoids depending on any external `/review-export` command.
-
-Available environment variables in commands:
+Available environment variables in built-in commands:
 
 - `$CWD`
 - `$SKILL_DIR`
@@ -24,20 +22,18 @@ The orchestrator renders these prompt files before launching any stage:
 
 When invoking from the project being reviewed, run `npx @crown-dev-studios/review-council` so `process.cwd()` stays anchored to the project and output lands in `docs/reviews/`.
 
-## Default Commands
+## Built-In Commands
 
-The orchestrator provides sensible defaults for Claude, Codex, and the judge. No command flags are needed for the common case:
+The orchestrator provides canonical stage commands for Claude, Codex, and the judge. No command flags are needed for the common case:
 
 ```bash
 npx @crown-dev-studios/review-council --target "staged changes" --open-html
 ```
 
 Built-in defaults:
-- **Claude:** `claude --dangerously-skip-permissions -p "$(cat $CLAUDE_DIR/claude-review-export.md)"`
-- **Codex:** `codex exec --dangerously-bypass-approvals-and-sandbox "$(cat $CODEX_DIR/codex-review-export.md)"`
-- **Judge:** `codex exec --dangerously-bypass-approvals-and-sandbox "$(cat $JUDGE_DIR/judge.md)"`
-
-Use `--claude-command`, `--codex-command`, or `--judge-command` to override any default.
+- **Claude:** `claude --dangerously-skip-permissions --verbose --output-format stream-json --include-partial-messages -p "$(cat "$CLAUDE_DIR/claude-review-export.md")"`
+- **Codex:** `codex exec --json --dangerously-bypass-approvals-and-sandbox "$(cat $CODEX_DIR/codex-review-export.md)"`
+- **Judge:** `codex exec --json --dangerously-bypass-approvals-and-sandbox "$(cat $JUDGE_DIR/judge.md)"`
 
 Use `--no-claude` or `--no-codex` to skip a model reviewer entirely.
 
@@ -91,17 +87,19 @@ Timed-out stages are not retried.
 
 ### Retries
 
-`--retries <n>` (default: 2) retries a stage up to N times on non-zero exit. Delay between retries uses exponential backoff: `2000 * 2^(attempt-1)` ms (2s, 4s, 8s...). The final `status.json` records `attempts` and `retried` fields.
+`--retries <n>` (default: 2) retries a stage up to N times on non-zero exit. Delay between retries uses exponential backoff: `2000 * 2^(attempt-1)` ms (2s, 4s, 8s...). The final `status.json` records the final `attempts` count.
 
 Retries are skipped for timeouts (not transient).
 
-### Interactive Prompt Detection
+### JSONL Streams
 
-The orchestrator monitors each reviewer's stdout for prompt-like output (lines ending with `? `, `: `, `> `, or containing `y/n`, `yes/no`) followed by 3 seconds of silence. When detected, the prompt is relayed to the user's terminal and the response is piped back to the child's stdin.
+All built-in stages emit JSONL events on stdout:
 
-If both reviewers prompt simultaneously, questions are queued and presented one at a time.
+- Claude via `--output-format stream-json`
+- Codex reviewer via `codex exec --json`
+- Codex judge via `codex exec --json`
 
-This is a best-effort safety net. Prefer explicit non-interactive mode (`claude --dangerously-skip-permissions -p`, `codex exec --dangerously-bypass-approvals-and-sandbox`) when possible.
+The orchestrator records that stdout directly to `stream.jsonl` for each stage and derives `last_activity_at`, `last_event_type`, `stream_event_count`, and `stream_parse_errors` from that one stream.
 
 ### Partial Judge Execution
 
@@ -116,4 +114,4 @@ The orchestrator waits for:
 - judge exit code `0`
 - judge `done.json`
 
-If a process exits `0` but omits `done.json`, the stage is treated as incomplete.
+If a process exits `0` but omits `done.json`, the stage is treated as incomplete. There is no sentinel bypass mode.

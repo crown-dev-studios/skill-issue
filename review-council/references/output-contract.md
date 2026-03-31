@@ -13,21 +13,21 @@ docs/reviews/<run-id>/
     findings.json
     done.json
     status.json
-    stdout.log
+    stream.jsonl
     stderr.log
   codex/
     report.md
     findings.json
     done.json
     status.json
-    stdout.log
+    stream.jsonl
     stderr.log
   judge/
     summary.md
     verdict.json
     done.json
     status.json
-    stdout.log
+    stream.jsonl
     stderr.log
 ```
 
@@ -40,6 +40,7 @@ Each model reviewer (Claude, Codex) writes:
 - `report.md`: human-readable review
 - `findings.json`: structured findings matching `schemas/review-findings.schema.json`
 - `done.json`: sentinel file confirming the agent finished writing artifacts
+- `stream.jsonl`: raw JSONL stdout event stream for the stage
 
 `done.json` shape:
 
@@ -69,18 +70,27 @@ The orchestrator writes `status.json` per stage with these fields:
 ```json
 {
   "stage": "claude",
-  "command": "claude -p ...",
+  "command_id": "claude-review",
+  "command": "claude --dangerously-skip-permissions --verbose --output-format stream-json --include-partial-messages -p ...",
   "started_at": "2026-03-07T18:25:00Z",
   "finished_at": "2026-03-07T18:30:00Z",
   "exit_code": 0,
-  "require_sentinel": true,
-  "done_file_present": true,
   "success": true,
   "timed_out": false,
   "attempts": 1,
-  "retried": false,
-  "stdout_log": "/path/to/stdout.log",
-  "stderr_log": "/path/to/stderr.log"
+  "stream_log": "/path/to/stream.jsonl",
+  "stderr_log": "/path/to/stderr.log",
+  "last_activity_at": "2026-03-07T18:29:59Z",
+  "last_event_type": "stop",
+  "stream_event_count": 42,
+  "stream_parse_errors": 0,
+  "artifact_presence": {
+    "report.md": true,
+    "findings.json": true,
+    "done.json": true
+  },
+  "missing_artifacts": [],
+  "validation_errors": []
 }
 ```
 
@@ -102,8 +112,45 @@ Key fields:
 | `exit_code` | number | Process exit code. `124` on timeout. |
 | `timed_out` | boolean | Whether the stage was killed due to timeout. |
 | `attempts` | number | Total attempts (1 = no retries). |
-| `retried` | boolean | Whether the stage was retried at least once. |
-| `validation_errors` | array? | Schema validation errors if the output JSON was malformed. |
+| `stream_log` | string | JSONL stdout event stream for the stage. |
+| `last_activity_at` | string? | Last observed stream activity timestamp. |
+| `last_event_type` | string? | Last observed stream event type. |
+| `stream_event_count` | number | Parsed stdout event count for the attempt. |
+| `stream_parse_errors` | number | Number of stdout lines that failed JSON parsing. |
+| `missing_artifacts` | array | Required artifacts absent for the final attempt. |
+| `validation_errors` | array | Lightweight output validation errors for malformed structured artifacts. |
+| `warnings` | array? | Non-authoritative observability warnings, such as stream parse issues. |
+
+## Run Metadata
+
+`run.json` records the rendered prompt sources plus canonical execution metadata for each executable stage:
+
+```json
+{
+  "run_id": "20260330-12345678",
+  "review_target": "staged changes",
+  "stage_executions": {
+    "claude": {
+      "command_id": "claude-review",
+      "artifacts": {
+        "stream_log": "/path/to/stream.jsonl"
+      }
+    },
+    "codex": {
+      "command_id": "codex-review",
+      "artifacts": {
+        "stream_log": "/path/to/stream.jsonl"
+      }
+    },
+    "judge": {
+      "command_id": "codex-judge",
+      "artifacts": {
+        "stream_log": "/path/to/stream.jsonl"
+      }
+    }
+  }
+}
+```
 
 ## Bundle Output
 

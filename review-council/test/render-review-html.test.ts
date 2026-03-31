@@ -99,3 +99,56 @@ test("renderRunDir renders markdown reports as HTML", () => {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("renderRunDir surfaces Claude stream diagnostics for failed stages", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "review-council-render-"));
+  const runDir = resolve(tempRoot, "docs", "reviews", "diagnostics-test");
+
+  try {
+    mkdirSync(resolve(runDir, "claude"), { recursive: true });
+    mkdirSync(resolve(runDir, "codex"), { recursive: true });
+    mkdirSync(resolve(runDir, "judge"), { recursive: true });
+
+    writeJson(resolve(runDir, "run.json"), {
+      run_id: "diagnostics-test",
+      review_target: "staged changes",
+    });
+
+    writeJson(resolve(runDir, "claude", "status.json"), {
+      success: false,
+      exit_code: 0,
+      stream_event_count: 2,
+      stream_parse_errors: 1,
+      last_activity_at: "2026-03-30T12:00:00.000Z",
+      last_event_type: "stop",
+      warnings: ["Failed to parse claude stream output line 1."],
+      stream_log: "/tmp/run/claude/stream.jsonl",
+      stderr_log: "/tmp/run/claude/stderr.log",
+      missing_artifacts: ["done.json"],
+    });
+    writeJson(resolve(runDir, "codex", "status.json"), { success: true, exit_code: 0 });
+    writeJson(resolve(runDir, "judge", "status.json"), { success: true, exit_code: 0 });
+
+    writeJson(resolve(runDir, "claude", "findings.json"), { findings: [] });
+    writeJson(resolve(runDir, "codex", "findings.json"), { findings: [] });
+    writeJson(resolve(runDir, "judge", "verdict.json"), {
+      overall_verdict: "needs-fixes",
+      confirmed_findings: [],
+      contested_findings: [],
+      rejected_findings: [],
+    });
+    writeFileSync(resolve(runDir, "claude", "stderr.log"), "claude stderr line\n");
+
+    renderRunDir(runDir);
+
+    const html = readFileSync(resolve(runDir, "index.html"), "utf8");
+    assert.match(html, /stream parse error\(s\)/);
+    assert.match(html, /Warnings:/);
+    assert.match(html, /Failed to parse claude stream output line 1\./);
+    assert.match(html, /last activity: 2026-03-30T12:00:00.000Z/);
+    assert.match(html, /last event: stop/);
+    assert.match(html, /stream\.jsonl/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});

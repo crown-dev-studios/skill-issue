@@ -1,22 +1,84 @@
 import { strict as assert } from "node:assert";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, test } from "node:test";
-import { fileURLToPath } from "node:url";
 import {
   evaluateStageArtifacts,
+  main,
   parseCliOptions,
+  printHelp,
   type StageAttemptResult,
   type StageDefinition,
 } from "../src/orchestrate-review-council.js";
+import { createStageExecution } from "../src/stage-runtime.js";
 import {
   createRunId,
   normalizeReviewTarget,
 } from "../src/review-session.js";
 
+const FAKE_CLAUDE_SCRIPT = `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+
+const stageDir = process.env.CLAUDE_DIR;
+const scenario = process.env.RC_FAKE_CLAUDE_SCENARIO ?? "success";
+
+function writeArtifacts() {
+  fs.writeFileSync(path.join(stageDir, "report.md"), "# Claude Report\\n");
+  fs.writeFileSync(path.join(stageDir, "findings.json"), JSON.stringify({
+    reviewer: "claude",
+    target: "staged changes",
+    generated_at: "2026-03-30T00:00:00.000Z",
+    summary: "One issue found.",
+    findings: [
+      {
+        id: "F001",
+        title: "Example finding",
+        severity: "p2",
+        confidence: "high",
+        category: "testing",
+        description: "Example description",
+        evidence: "Example evidence",
+        recommended_fix: "Example fix",
+        files: [{ path: "src/example.ts", line: 1 }],
+      },
+    ],
+  }, null, 2) + "\\n");
+  fs.writeFileSync(path.join(stageDir, "done.json"), JSON.stringify({
+    reviewer: "claude",
+    status: "complete",
+    completed_at: "2026-03-30T00:00:01.000Z",
+    finding_count: 1,
+  }, null, 2) + "\\n");
+}
+
+if (scenario === "timeout") {
+  setInterval(() => {}, 1000);
+  return;
+}
+
+if (scenario === "malformed") {
+  process.stdout.write("not-json\\n");
+}
+
+process.stdout.write(JSON.stringify({ type: "message_start" }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "message_delta", delta: "reviewing" }) + "\\n");
+
+writeArtifacts();
+`;
+
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function readJson(path: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+}
+
+function writeExecutable(path: string, content: string): void {
+  writeFileSync(path, content);
+  chmodSync(path, 0o755);
 }
 
 function makeTempStageDir(): { root: string; stageDir: string } {
@@ -29,8 +91,14 @@ function makeTempStageDir(): { root: string; stageDir: string } {
 function makeStageDefinition(stageDir: string): StageDefinition {
   return {
     name: "claude",
-    displayName: "Claude",
-    command: "echo test",
+    execution: {
+      commandId: "codex-review",
+      command: "echo test",
+      artifacts: {
+        streamLog: resolve(stageDir, "stream.jsonl"),
+        stderrLog: resolve(stageDir, "stderr.log"),
+      },
+    },
     stageDir,
     promptOutputName: "claude-review-export.md",
     promptTemplatePath: "/unused",
@@ -47,8 +115,11 @@ function makeAttempt(overrides: Partial<StageAttemptResult> = {}): StageAttemptR
     timedOut: false,
     startedAt: "2026-03-18T00:00:00.000Z",
     finishedAt: "2026-03-18T00:00:01.000Z",
-    stdoutPath: "/dev/null",
+    streamPath: "/dev/null",
     stderrPath: "/dev/null",
+    streamEventCount: 0,
+    streamParseErrors: 0,
+    warnings: [],
     ...overrides,
   };
 }
@@ -74,12 +145,92 @@ function writeValidArtifacts(stageDir: string): void {
   });
 }
 
+function captureHelpOutput(): string {
+  const originalError = console.error;
+  const messages: string[] = [];
+  console.error = (...items: unknown[]) => {
+    messages.push(items.join(" "));
+  };
+
+  try {
+    printHelp();
+  } finally {
+    console.error = originalError;
+  }
+
+  return messages.join("\n");
+}
+
+async function runFakeClaudeScenario(
+  scenario: "success" | "malformed" | "timeout",
+  extraArgs: string[] = [],
+): Promise<{ root: string; runDir: string; exitCode: number | undefined }> {
+  const root = mkdtempSync(join(tmpdir(), "rc-main-"));
+  const projectDir = resolve(root, "project");
+  const binDir = resolve(root, "bin");
+  const runDir = resolve(root, "run");
+
+  mkdirSync(projectDir, { recursive: true });
+  mkdirSync(binDir, { recursive: true });
+  writeExecutable(resolve(binDir, "claude"), FAKE_CLAUDE_SCRIPT);
+
+  const previousCwd = process.cwd();
+  const previousPath = process.env.PATH;
+  const previousScenario = process.env.RC_FAKE_CLAUDE_SCENARIO;
+  const previousExitCode = process.exitCode;
+  const originalLog = console.log;
+  const originalError = console.error;
+
+  process.chdir(projectDir);
+  process.env.PATH = `${binDir}:${previousPath ?? ""}`;
+  process.env.RC_FAKE_CLAUDE_SCENARIO = scenario;
+  process.exitCode = undefined;
+  console.log = (..._items: unknown[]) => {};
+  console.error = (..._items: unknown[]) => {};
+
+  try {
+    await main([
+      "--target", "staged changes",
+      "--no-codex",
+      "--skip-judge",
+      "--skip-html",
+      "--run-dir", runDir,
+      ...extraArgs,
+    ]);
+    return {
+      root,
+      runDir,
+      exitCode: process.exitCode,
+    };
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+    process.chdir(previousCwd);
+    process.env.PATH = previousPath;
+    if (previousScenario === undefined) {
+      delete process.env.RC_FAKE_CLAUDE_SCENARIO;
+    } else {
+      process.env.RC_FAKE_CLAUDE_SCENARIO = previousScenario;
+    }
+    process.exitCode = previousExitCode;
+  }
+}
+
 // -- parseCliOptions --
 
 describe("parseCliOptions", () => {
   test("returns null and sets exitCode when --target is missing", () => {
     const prev = process.exitCode;
-    const result = parseCliOptions(["--claude-command", "echo"]);
+    const result = parseCliOptions([]);
+    assert.equal(result, null);
+    assert.equal(process.exitCode, 1);
+    process.exitCode = prev;
+  });
+
+  test("rejects removed command override flags", () => {
+    const prev = process.exitCode;
+    process.exitCode = undefined;
+    const result = parseCliOptions(["--target", "test", "--claude-command", "echo"]);
     assert.equal(result, null);
     assert.equal(process.exitCode, 1);
     process.exitCode = prev;
@@ -94,22 +245,14 @@ describe("parseCliOptions", () => {
     process.exitCode = prev;
   });
 
-  test("uses default commands when none provided", () => {
+  test("uses canonical defaults when none are provided", () => {
     const result = parseCliOptions(["--target", "test"]);
     assert.ok(result);
-    assert.ok(result.claudeCommand?.includes("claude"));
-    assert.ok(result.codexCommand?.includes("codex"));
-    assert.ok(result.judgeCommand?.includes("codex"));
-    assert.match(
-      result.codexCommand ?? "",
-      /--dangerously-bypass-approvals-and-sandbox/,
-    );
-    assert.match(
-      result.judgeCommand ?? "",
-      /--dangerously-bypass-approvals-and-sandbox/,
-    );
-    assert.doesNotMatch(result.codexCommand ?? "", /last-message\.txt/);
-    assert.doesNotMatch(result.judgeCommand ?? "", /last-message\.txt/);
+    assert.equal(result.enableClaude, true);
+    assert.equal(result.enableCodex, true);
+    assert.equal(result.skipJudge, false);
+    assert.equal(Object.hasOwn(result as unknown as Record<string, unknown>, "claudeCommand"), false);
+    assert.equal(Object.hasOwn(result as unknown as Record<string, unknown>, "allowMissingSentinel"), false);
   });
 
   test("normalizes skill directory inputs and removes blank entries", () => {
@@ -135,17 +278,23 @@ describe("parseCliOptions", () => {
   test("returns parsed options for valid args", () => {
     const result = parseCliOptions([
       "--target", "staged changes",
-      "--claude-command", "claude --print",
       "--timeout", "60000",
       "--retries", "1",
       "--skip-judge",
     ]);
     assert.ok(result);
     assert.equal(result.target, "staged changes");
-    assert.equal(result.claudeCommand, "claude --print");
     assert.equal(result.timeoutMs, 60000);
     assert.equal(result.maxRetries, 1);
     assert.equal(result.skipJudge, true);
+  });
+
+  test("help output omits removed override and sentinel flags", () => {
+    const help = captureHelpOutput();
+    assert.doesNotMatch(help, /--claude-command/);
+    assert.doesNotMatch(help, /--codex-command/);
+    assert.doesNotMatch(help, /--judge-command/);
+    assert.doesNotMatch(help, /--allow-missing-sentinel/);
   });
 });
 
@@ -158,7 +307,7 @@ describe("evaluateStageArtifacts", () => {
       const stage = makeStageDefinition(stageDir);
       writeValidArtifacts(stageDir);
 
-      const result = evaluateStageArtifacts(stage, makeAttempt(), true);
+      const result = evaluateStageArtifacts(stage, makeAttempt());
       assert.equal(result.success, true);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -169,7 +318,7 @@ describe("evaluateStageArtifacts", () => {
     const { root, stageDir } = makeTempStageDir();
     try {
       const stage = makeStageDefinition(stageDir);
-      const result = evaluateStageArtifacts(stage, makeAttempt({ timedOut: true }), false);
+      const result = evaluateStageArtifacts(stage, makeAttempt({ timedOut: true }));
       assert.equal(result.success, false);
       assert.equal(result.failureReason, "timeout");
     } finally {
@@ -181,7 +330,7 @@ describe("evaluateStageArtifacts", () => {
     const { root, stageDir } = makeTempStageDir();
     try {
       const stage = makeStageDefinition(stageDir);
-      const result = evaluateStageArtifacts(stage, makeAttempt({ exitCode: 1 }), false);
+      const result = evaluateStageArtifacts(stage, makeAttempt({ exitCode: 1 }));
       assert.equal(result.success, false);
       assert.equal(result.failureReason, "process_failed");
     } finally {
@@ -194,7 +343,7 @@ describe("evaluateStageArtifacts", () => {
     try {
       const stage = makeStageDefinition(stageDir);
       writeJson(resolve(stageDir, "findings.json"), { reviewer: "claude" });
-      const result = evaluateStageArtifacts(stage, makeAttempt(), false);
+      const result = evaluateStageArtifacts(stage, makeAttempt());
       assert.equal(result.success, false);
       assert.equal(result.failureReason, "missing_artifacts");
       assert.ok(result.missingArtifacts.includes("report.md"));
@@ -203,15 +352,107 @@ describe("evaluateStageArtifacts", () => {
     }
   });
 
-  test("succeeds when artifacts exist regardless of content", () => {
+  test("returns invalid_artifacts with validation errors for malformed structured output", () => {
     const { root, stageDir } = makeTempStageDir();
     try {
       const stage = makeStageDefinition(stageDir);
-      writeValidArtifacts(stageDir);
-      const result = evaluateStageArtifacts(stage, makeAttempt(), false);
-      assert.equal(result.success, true);
+      writeFileSync(resolve(stageDir, "report.md"), "# Report\n");
+      writeJson(resolve(stageDir, "findings.json"), { findings: "wrong" });
+      writeJson(resolve(stageDir, "done.json"), { status: "complete" });
+
+      const result = evaluateStageArtifacts(stage, makeAttempt());
+      assert.equal(result.success, false);
+      assert.equal(result.failureReason, "invalid_artifacts");
+      assert.deepEqual(result.validationErrors, [
+        { path: "findings", message: "Expected findings to be an array." },
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// -- integrated Claude runtime --
+
+describe("main Claude runtime", () => {
+  test("uses JSONL streaming for Claude, Codex, and judge commands", () => {
+    const executionRoot = resolve("/tmp", "review-council-stage-exec");
+    const claudeExecution = createStageExecution("claude", resolve(executionRoot, "claude"), "claude-review-export.md");
+    const codexExecution = createStageExecution("codex", resolve(executionRoot, "codex"), "codex-review-export.md");
+    const judgeExecution = createStageExecution("judge", resolve(executionRoot, "judge"), "judge.md");
+
+    assert.equal(claudeExecution.commandId, "claude-review");
+    assert.match(claudeExecution.command, /--output-format stream-json/);
+    assert.doesNotMatch(claudeExecution.command, /--debug\b/);
+    assert.match(codexExecution.command, /codex exec --json --dangerously-bypass-approvals-and-sandbox/);
+    assert.match(judgeExecution.command, /codex exec --json --dangerously-bypass-approvals-and-sandbox/);
+    assert.match(claudeExecution.artifacts.streamLog, /stream\.jsonl$/);
+    assert.match(codexExecution.artifacts.streamLog, /stream\.jsonl$/);
+    assert.match(judgeExecution.artifacts.streamLog, /stream\.jsonl$/);
+  });
+
+  test("writes canonical Claude execution metadata and stream observability artifacts", async () => {
+    const context = await runFakeClaudeScenario("success");
+    try {
+      const run = readJson(resolve(context.runDir, "run.json"));
+      const status = readJson(resolve(context.runDir, "claude", "status.json"));
+
+      const stageExecutions = run.stage_executions as Record<string, Record<string, unknown> | null>;
+      assert.equal(context.exitCode, 0);
+      assert.equal(Object.hasOwn(run, "command_templates"), false);
+      assert.ok(stageExecutions.claude);
+      assert.equal(stageExecutions.claude?.command_id, "claude-review");
+      assert.equal(stageExecutions.codex, null);
+      assert.equal(stageExecutions.judge, null);
+
+      const claudeArtifacts = stageExecutions.claude?.artifacts as Record<string, string | undefined>;
+      assert.ok(claudeArtifacts.stream_log);
+
+      assert.equal(status.success, true);
+      assert.equal(status.command_id, "claude-review");
+      assert.equal(status.stream_event_count, 2);
+      assert.equal(status.stream_parse_errors, 0);
+      assert.equal(typeof status.last_activity_at, "string");
+      assert.equal(typeof status.last_event_type, "string");
+      assert.equal(Array.isArray(status.warnings), false);
+
+      assert.equal(typeof status.stream_log, "string");
+      assert.equal(typeof status.stderr_log, "string");
+      assert.equal(readFileSync(status.stream_log as string, "utf8").length > 0, true);
+      assert.equal(readFileSync(status.stderr_log as string, "utf8"), "");
+    } finally {
+      rmSync(context.root, { recursive: true, force: true });
+    }
+  });
+
+  test("records stream parse warnings without failing the stage", async () => {
+    const context = await runFakeClaudeScenario("malformed");
+    try {
+      const status = readJson(resolve(context.runDir, "claude", "status.json"));
+      assert.equal(context.exitCode, 0);
+      assert.equal(status.success, true);
+      assert.equal(status.stream_event_count, 2);
+      assert.equal(status.stream_parse_errors, 1);
+      assert.deepEqual(status.warnings, [
+        "Failed to parse claude stream output line 1.",
+      ]);
+    } finally {
+      rmSync(context.root, { recursive: true, force: true });
+    }
+  });
+
+  test("marks timed out Claude runs as failed while preserving diagnostics metadata", async () => {
+    const context = await runFakeClaudeScenario("timeout", ["--timeout", "50", "--retries", "0"]);
+    try {
+      const status = readJson(resolve(context.runDir, "claude", "status.json"));
+      assert.equal(context.exitCode, 1);
+      assert.equal(status.success, false);
+      assert.equal(status.timed_out, true);
+      assert.equal(status.exit_code, 124);
+      assert.deepEqual(status.missing_artifacts, ["report.md", "findings.json", "done.json"]);
+      assert.equal(Array.isArray(status.warnings), false);
+    } finally {
+      rmSync(context.root, { recursive: true, force: true });
     }
   });
 });
