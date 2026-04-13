@@ -56,6 +56,44 @@ pnpm run second-opinion -- --help
 pnpm run review-council -- --help
 ```
 
+## Packaging and release
+
+The root `VERSION` file and `package.json` are the single source of truth. Release scripts live in `scripts/` and are exposed as `pnpm run release:*`.
+
+Preflight (no publish) — install with frozen lockfile, build, test, and dry-run `npm pack`:
+
+```bash
+pnpm run release:preflight
+```
+
+Bump the version (updates `VERSION`, `package.json`, lockfile metadata, then commits and tags `vX.Y.Z`):
+
+```bash
+pnpm run release:bump -- patch        # or minor | major | 1.2.3
+pnpm run release:bump -- patch --no-push
+```
+
+Verify the tag matches `VERSION` and `package.json`:
+
+```bash
+pnpm run release:check-version -- --require-tag
+```
+
+Publish to npm (runs preflight, pushes branch + tag, then `pnpm publish`). Requires `npm login`, a clean git tree, and the matching `vX.Y.Z` tag:
+
+```bash
+pnpm run release:deploy -- --dry-run  # preview
+pnpm run release:deploy               # publish
+```
+
+Full release sequence:
+
+```bash
+pnpm run release:bump -- patch
+pnpm run release:check-version -- --require-tag
+pnpm run release:deploy
+```
+
 ## License
 
 MIT
