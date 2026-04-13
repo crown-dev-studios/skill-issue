@@ -4,7 +4,36 @@ First-party AI agent skills and companion CLIs for software development workflow
 
 ## Install
 
-The repo ships as one npm package with one version and multiple commands:
+### Claude Code
+
+Add the marketplace and install the plugin:
+
+```
+/plugin marketplace add crown-dev-studios/skill-issue
+/plugin install skill-issue@skill-issue
+```
+
+All 11 skills are declared through `.claude-plugin/plugin.json` and activate immediately.
+
+### Codex, Cursor, and other `~/.agents/skills`-aware harnesses
+
+Run the install script — it copies each skill into `~/.agents/skills/skill-issue/`, stripping git metadata, tests, and build sources:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/crown-dev-studios/skill-issue/main/scripts/install.sh | bash
+```
+
+Or from a local checkout:
+
+```bash
+./scripts/install.sh
+```
+
+Override the destination with `SKILL_ISSUE_DEST=/some/other/path ./scripts/install.sh`.
+
+### npm (CLIs only)
+
+The repo also ships as one npm package with multiple commands:
 
 ```bash
 npx @crown-dev-studios/skill-issue second-opinion --help
