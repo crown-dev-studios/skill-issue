@@ -69,29 +69,31 @@ pnpm run release:preflight
 Bump the version (updates `VERSION`, `package.json`, lockfile metadata, then commits and tags `vX.Y.Z`):
 
 ```bash
-pnpm run release:bump -- patch        # or minor | major | 1.2.3
-pnpm run release:bump -- patch --no-push
+bash scripts/bump-version.sh patch         # or minor | major | 1.2.3
+bash scripts/bump-version.sh patch --no-push
 ```
 
 Verify the tag matches `VERSION` and `package.json`:
 
 ```bash
-pnpm run release:check-version -- --require-tag
+bash scripts/check-version.sh --require-tag
 ```
 
 Publish to npm (runs preflight, pushes branch + tag, then `pnpm publish`). Requires `npm login`, a clean git tree, and the matching `vX.Y.Z` tag:
 
 ```bash
-pnpm run release:deploy -- --dry-run  # preview
-pnpm run release:deploy               # publish
+bash scripts/deploy.sh --dry-run           # preview
+bash scripts/deploy.sh                     # publish
 ```
+
+The `pnpm run release:*` aliases invoke the same scripts but do not forward extra flags cleanly, so call the scripts directly when passing options. `pnpm run release:preflight` remains the convenient no-arg entry point for the preflight.
 
 Full release sequence:
 
 ```bash
-pnpm run release:bump -- patch
-pnpm run release:check-version -- --require-tag
-pnpm run release:deploy
+bash scripts/bump-version.sh patch
+bash scripts/check-version.sh --require-tag
+bash scripts/deploy.sh
 ```
 
 ## License
