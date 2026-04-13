@@ -1,0 +1,25 @@
+{
+  "name": "skill-issue",
+  "version": "0.5.0",
+  "description": "First-party AI agent skills and companion CLIs for software development workflows.",
+  "author": {
+    "name": "Crown Dev Studios",
+    "url": "https://github.com/crown-dev-studios"
+  },
+  "homepage": "https://github.com/crown-dev-studios/skill-issue",
+  "repository": "https://github.com/crown-dev-studios/skill-issue",
+  "license": "MIT",
+  "skills": [
+    "./architecture-review",
+    "./brainstorming",
+    "./code-simplicity",
+    "./linear-issue-shaping",
+    "./plan-compliance",
+    "./plan-review",
+    "./planning",
+    "./review-council",
+    "./review-triage",
+    "./second-opinion",
+    "./testing-philosophy"
+  ]
+}
