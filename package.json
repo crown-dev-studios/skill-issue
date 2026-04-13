@@ -1,0 +1,82 @@
+{
+  "name": "@crown-dev-studios/skill-issue",
+  "version": "0.5.0",
+  "description": "First-party AI agent skills and companion CLIs for software development workflows.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crown-dev-studios/skill-issue.git"
+  },
+  "homepage": "https://github.com/crown-dev-studios/skill-issue#readme",
+  "bugs": {
+    "url": "https://github.com/crown-dev-studios/skill-issue/issues"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "type": "module",
+  "bin": {
+    "skill-issue": "./bin/skill-issue.js",
+    "second-opinion": "./second-opinion/dist/index.js",
+    "review-council": "./review-council/dist/cli.js"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "bin/",
+    "architecture-review/",
+    "brainstorming/",
+    "code-simplicity/",
+    "linear-issue-shaping/",
+    "plan-compliance/",
+    "plan-review/",
+    "planning/",
+    "review-triage/",
+    "testing-philosophy/",
+    "second-opinion/SKILL.md",
+    "second-opinion/README.md",
+    "second-opinion/dist/",
+    "review-council/SKILL.md",
+    "review-council/README.md",
+    "review-council/dist/",
+    "review-council/templates/",
+    "review-council/schemas/",
+    "review-council/references/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm run build:second-opinion && pnpm run build:review-council",
+    "build:second-opinion": "tsc -p second-opinion/tsconfig.json",
+    "build:review-council": "rm -rf review-council/dist && tsc -p review-council/tsconfig.build.json",
+    "typecheck": "pnpm run typecheck:second-opinion && pnpm run typecheck:review-council",
+    "typecheck:second-opinion": "tsc --noEmit -p second-opinion/tsconfig.json",
+    "typecheck:review-council": "tsc --noEmit -p review-council/tsconfig.json",
+    "second-opinion": "tsx second-opinion/src/index.ts",
+    "review-council": "tsx review-council/src/cli.ts",
+    "pretest": "pnpm run build",
+    "test": "pnpm run test:root && pnpm run test:second-opinion && pnpm run test:review-council",
+    "test:root": "node --test --test-concurrency=1 test/*.test.mjs",
+    "test:second-opinion": "node --test --test-concurrency=1 second-opinion/test/*.test.mjs",
+    "test:review-council": "node --import tsx/esm --test review-council/test/*.test.ts",
+    "prepack": "pnpm run build",
+    "pack:dry-run": "npm_config_cache=.npm-cache npm pack --dry-run --json",
+    "verify:package": "pnpm run pack:dry-run",
+    "release:preflight": "bash scripts/prepare-release.sh",
+    "release:check-version": "bash scripts/check-version.sh",
+    "release:bump": "bash scripts/bump-version.sh",
+    "release:deploy": "bash scripts/deploy.sh",
+    "release:manual": "bash scripts/prepare-release.sh"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.1"
+  }
+}

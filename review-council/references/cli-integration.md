@@ -20,20 +20,20 @@ The orchestrator renders these prompt files before launching any stage:
 - `{codex_dir}/codex-review-export.md`
 - `{judge_dir}/judge.md`
 
-When invoking from the project being reviewed, run `npx @crown-dev-studios/review-council` so `process.cwd()` stays anchored to the project and output lands in `docs/reviews/`.
+When invoking from the project being reviewed, run `npx @crown-dev-studios/skill-issue review-council` so `process.cwd()` stays anchored to the project and output lands in `docs/reviews/`.
 
 ## Built-In Commands
 
 The orchestrator provides canonical stage commands for Claude, Codex, and the judge. No command flags are needed for the common case:
 
 ```bash
-npx @crown-dev-studios/review-council --target "staged changes" --open-html
+npx @crown-dev-studios/skill-issue review-council --target "staged changes" --open-html
 ```
 
 Built-in defaults:
-- **Claude:** `claude --dangerously-skip-permissions --verbose --output-format stream-json --include-partial-messages -p "$(cat "$CLAUDE_DIR/claude-review-export.md")"`
-- **Codex:** `codex exec --json --dangerously-bypass-approvals-and-sandbox "$(cat $CODEX_DIR/codex-review-export.md)"`
-- **Judge:** `codex exec --json --dangerously-bypass-approvals-and-sandbox "$(cat $JUDGE_DIR/judge.md)"`
+- **Claude:** `claude --model claude-opus-4-6 --effort max --dangerously-skip-permissions --verbose --output-format stream-json --include-partial-messages -p "$(cat "$CLAUDE_DIR/claude-review-export.md")"`
+- **Codex:** `codex exec --json --dangerously-bypass-approvals-and-sandbox --model gpt-5.4 -c 'model_reasoning_effort="xhigh"' -c 'notify=[...]' "$(cat $CODEX_DIR/codex-review-export.md)"`
+- **Judge:** `codex exec --json --dangerously-bypass-approvals-and-sandbox --model gpt-5.4 -c 'model_reasoning_effort="xhigh"' -c 'notify=[...]' "$(cat $JUDGE_DIR/judge.md)"`
 
 Use `--no-claude` or `--no-codex` to skip a model reviewer entirely.
 
@@ -42,13 +42,13 @@ Use `--no-claude` or `--no-codex` to skip a model reviewer entirely.
 Review staged changes with defaults (Claude + Codex + Codex judge):
 
 ```bash
-npx @crown-dev-studios/review-council --target "staged changes" --open-html
+npx @crown-dev-studios/skill-issue review-council --target "staged changes" --open-html
 ```
 
 Review a branch with only Claude:
 
 ```bash
-npx @crown-dev-studios/review-council \
+npx @crown-dev-studios/skill-issue review-council \
   --target "branch main..feature/workspace-manager" \
   --no-codex \
   --open-html
@@ -57,13 +57,13 @@ npx @crown-dev-studios/review-council \
 Review a PR:
 
 ```bash
-npx @crown-dev-studios/review-council --target "pr 42" --open-html
+npx @crown-dev-studios/skill-issue review-council --target "pr 42" --open-html
 ```
 
 Review with selected skills:
 
 ```bash
-npx @crown-dev-studios/review-council \
+npx @crown-dev-studios/skill-issue review-council \
   --target "branch main..HEAD" \
   --skill-paths "/path/to/architecture-review,/path/to/plan-compliance" \
   --open-html
@@ -77,19 +77,13 @@ npx @crown-dev-studios/review-council \
 
 ### Timeout
 
-`--timeout <ms>` (default: 300000 — 5 minutes) sets a per-stage deadline. On timeout:
+`--timeout <ms>` (default: 900000 — 15 minutes) sets a per-stage deadline. On timeout:
 
 1. The child process receives `SIGTERM`
 2. After a 5-second grace period, `SIGKILL` is sent if the process hasn't exited
 3. The stage result records `exit_code: 124` and `timed_out: true`
 
-Timed-out stages are not retried.
-
-### Retries
-
-`--retries <n>` (default: 2) retries a stage up to N times on non-zero exit. Delay between retries uses exponential backoff: `2000 * 2^(attempt-1)` ms (2s, 4s, 8s...). The final `status.json` records the final `attempts` count.
-
-Retries are skipped for timeouts (not transient).
+Timed-out stages are not retried. Stage failures surface immediately — the orchestrator runs each stage exactly once.
 
 ### JSONL Streams
 
@@ -99,7 +93,11 @@ All built-in stages emit JSONL events on stdout:
 - Codex reviewer via `codex exec --json`
 - Codex judge via `codex exec --json`
 
-The orchestrator records that stdout directly to `stream.jsonl` for each stage and derives `last_activity_at`, `last_event_type`, `stream_event_count`, and `stream_parse_errors` from that one stream.
+The orchestrator records that stdout directly to `stream.jsonl` for each stage, derives `last_activity_at`, `last_event_type`, `stream_event_count`, and `stream_parse_errors`, and writes selected high-signal progress entries into `events.jsonl`.
+
+For Claude, Codex, and the judge, those parsed stdout events are the live progress channel. Completion still comes from subprocess `close` plus artifact validation.
+
+That stream is diagnostic only. Stage success is determined by process exit plus the required file artifacts and `done.json`, not by anything written to stdout.
 
 ### Partial Judge Execution
 

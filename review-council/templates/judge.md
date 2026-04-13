@@ -24,6 +24,8 @@ If a reviewer directory does not exist, that reviewer did not run. Ignore missin
 3. Write a completion sentinel to:
    `{{ARTIFACT_DIR}}/done.json`
 
+`stdout` is diagnostic transport only. The orchestrator captures it to `stream.jsonl`; it is not the authoritative output channel. The authoritative outputs for this stage are `summary.md`, `verdict.json`, and `done.json` in `{{ARTIFACT_DIR}}`.
+
 ## Judge Rules
 
 ### 1. Semantic Deduplication
@@ -76,6 +78,7 @@ After performing dedup, contradiction detection, and ordering:
 
 - Do not create files in `todos/`
 - Do not modify source code
+- Finish by writing the required files completely, then exit cleanly. Do not wait for `stdout` acknowledgement.
 
 ## done.json Shape
 

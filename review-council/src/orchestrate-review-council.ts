@@ -1,9 +1,14 @@
 import { execFileSync, spawn } from "node:child_process";
-import { accessSync, constants, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { finished } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import {
+  appendRuntimeEvent,
+  writeRuntimeSnapshot,
+  type RuntimeSnapshotState,
+} from "./stage-artifacts.js";
 import {
   buildReviewPaths,
   createRunId,
@@ -11,11 +16,11 @@ import {
 } from "./review-session.js";
 import { renderRunDir, writeFollowUpsMarkdown } from "./render-review-html.js";
 import { createStageExecution, type StageExecution, type StageName } from "./stage-runtime.js";
+import { extractObservedEventType, extractStreamProgressEvent } from "./stream-progress.js";
 
 interface PromptSelection {
   templatePath: string;
   source: string;
-  profileId: string;
 }
 
 export interface StageDefinition {
@@ -37,8 +42,13 @@ export interface StageAttemptResult {
   finishedAt: string;
   streamPath: string;
   stderrPath: string;
+  eventsPath: string;
+  runtimePath: string;
   lastActivityAt?: string;
   lastEventType?: string;
+  heartbeatAt?: string;
+  lastStdoutAt?: string;
+  lastStderrAt?: string;
   streamEventCount: number;
   streamParseErrors: number;
   warnings: string[];
@@ -62,7 +72,6 @@ export interface StageResult {
   exit_code: number;
   success: boolean;
   timed_out: boolean;
-  attempts: number;
   failure_reason?: StageEvaluation["failureReason"];
   missing_artifacts?: string[];
   artifact_presence?: Record<string, boolean>;
@@ -74,8 +83,6 @@ interface CliOptions {
   runDir?: string;
   enableClaude: boolean;
   enableCodex: boolean;
-  reviewProfileId: string;
-  judgeProfileId: string;
   claudePromptTemplate?: string;
   codexPromptTemplate?: string;
   judgePromptTemplate?: string;
@@ -84,7 +91,6 @@ interface CliOptions {
   openHtml: boolean;
   skillPaths?: string[];
   timeoutMs: number;
-  maxRetries: number;
 }
 
 interface PromptSelections {
@@ -113,14 +119,10 @@ interface ReviewerExecution {
   reviewersPartial: boolean;
 }
 
-const DEFAULT_TIMEOUT_MS = 300000;
-const DEFAULT_MAX_RETRIES = 2;
-const REVIEW_PROFILE_TEMPLATES: Record<string, string> = {
-  default: "reviewer-export.md",
-};
-const JUDGE_PROFILE_TEMPLATES: Record<string, string> = {
-  default: "judge.md",
-};
+const DEFAULT_TIMEOUT_MS = 900000;
+const HEARTBEAT_INTERVAL_MS = 15000;
+const REVIEW_TEMPLATE_FILE = "reviewer-export.md";
+const JUDGE_TEMPLATE_FILE = "judge.md";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -160,40 +162,7 @@ For this review, use these skills. The paths are provided so you can discover th
 ${lines.join("\n")}`;
 }
 
-function extractBinaryForPreflight(command: string): string | null {
-  const trimmed = command.trim();
-  if (!trimmed) return null;
-
-  const tokens = trimmed.match(/(?:[^\s"'`]+|"[^"]*"|'[^']*')+/g) ?? [];
-  for (const token of tokens) {
-    if (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token)) {
-      continue;
-    }
-
-    if (/[|&;<>()`$]/.test(token)) {
-      return null;
-    }
-
-    return token.replaceAll(/^['"]|['"]$/g, "") || null;
-  }
-
-  return null;
-}
-
-function assertBinaryExists(command: string, cwd: string): void {
-  const binary = extractBinaryForPreflight(command);
-  if (!binary) return;
-
-  if (binary.includes("/")) {
-    const resolvedBinary = resolve(cwd, binary);
-    try {
-      accessSync(resolvedBinary, constants.X_OK);
-      return;
-    } catch {
-      throw new Error(`Required executable not found or not executable: ${binary}`);
-    }
-  }
-
+function assertBinaryOnPath(binary: string): void {
   try {
     execFileSync("which", [binary], { stdio: "ignore" });
   } catch {
@@ -218,7 +187,6 @@ function renderTemplate(
 function resolvePromptSelection(
   packageDir: string,
   kind: "review" | "judge",
-  profileId: string,
   overridePath?: string,
 ): PromptSelection {
   if (overridePath) {
@@ -229,51 +197,38 @@ function resolvePromptSelection(
     return {
       templatePath,
       source: `override:${templatePath}`,
-      profileId,
     };
   }
 
-  const templates = kind === "review" ? REVIEW_PROFILE_TEMPLATES : JUDGE_PROFILE_TEMPLATES;
-  const templateName = templates[profileId];
-  if (!templateName) {
-    throw new Error(`Unknown ${kind} profile: ${profileId}`);
-  }
-
+  const templateName = kind === "review" ? REVIEW_TEMPLATE_FILE : JUDGE_TEMPLATE_FILE;
   const templatePath = resolve(packageDir, "templates", templateName);
   if (!existsSync(templatePath)) {
-    throw new Error(`Prompt template not found for ${kind} profile "${profileId}": ${templatePath}`);
+    throw new Error(`Prompt template not found for ${kind}: ${templatePath}`);
   }
 
   return {
     templatePath,
-    source: `${kind}-profile:${profileId}`,
-    profileId,
+    source: `${kind}-default`,
   };
 }
 
 function cleanupStageFiles(stage: StageDefinition): void {
-  const artifactPaths = new Set<string>([
-    stage.execution.artifacts.streamLog,
-    stage.execution.artifacts.stderrLog,
+  const { artifacts } = stage.execution;
+  const paths = [
+    artifacts.streamLog,
+    artifacts.stderrLog,
+    artifacts.eventsLog,
+    artifacts.runtimeLog,
     resolve(stage.stageDir, "status.json"),
     resolve(stage.stageDir, "done.json"),
-    ...stage.requiredArtifacts.map((artifactName) => resolve(stage.stageDir, artifactName)),
-  ]);
+    ...stage.requiredArtifacts.map((name) => resolve(stage.stageDir, name)),
+  ];
 
-  for (const artifactPath of artifactPaths) {
-    rmSync(artifactPath, { force: true, recursive: false });
+  for (const path of paths) {
+    rmSync(path, { force: true });
   }
 }
 
-
-function extractEventType(value: unknown): string | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return undefined;
-  }
-
-  const type = (value as Record<string, unknown>).type;
-  return typeof type === "string" && type.length > 0 ? type : undefined;
-}
 
 async function runStageOnce(
   stage: StageDefinition,
@@ -282,12 +237,13 @@ async function runStageOnce(
   commandEnv: Record<string, string>,
 ): Promise<StageAttemptResult> {
   const { execution } = stage;
-  const streamPath = execution.artifacts.streamLog;
-  const stderrPath = execution.artifacts.stderrLog;
+  const { streamLog: streamPath, stderrLog: stderrPath, eventsLog: eventsPath, runtimeLog: runtimePath } = execution.artifacts;
   const startedAt = nowIso();
 
   const streamFile = createWriteStream(streamPath);
   const stderrFile = createWriteStream(stderrPath);
+  streamFile.on("error", () => {});
+  stderrFile.on("error", () => {});
 
   const child = spawn("/bin/sh", ["-c", execution.command], {
     cwd: workdir,
@@ -296,6 +252,8 @@ async function runStageOnce(
   });
 
   child.stdin.end();
+  child.stdout.on("error", () => {});
+  child.stderr.on("error", () => {});
 
   const warnings: string[] = [];
   let lastActivityAt: string | undefined;
@@ -303,6 +261,29 @@ async function runStageOnce(
   let streamBuffer = "";
   let streamEventCount = 0;
   let streamParseErrors = 0;
+
+  const runtimeSnapshot: RuntimeSnapshotState = {
+    stage: stage.name,
+    runtime_state: "starting",
+    pid: child.pid ?? undefined,
+    started_at: startedAt,
+    heartbeat_at: undefined,
+    last_stdout_at: undefined,
+    last_stderr_at: undefined,
+  };
+
+  const flushRuntimeSnapshot = (): void => {
+    writeRuntimeSnapshot(runtimePath, runtimeSnapshot, warnings);
+  };
+
+  appendRuntimeEvent(eventsPath, {
+    ts: startedAt,
+    type: "stage_started",
+    stage: stage.name,
+    pid: child.pid ?? null,
+  }, warnings);
+  runtimeSnapshot.runtime_state = "running";
+  flushRuntimeSnapshot();
 
   const recordActivity = (eventType?: string): void => {
     lastActivityAt = nowIso();
@@ -317,21 +298,28 @@ async function runStageOnce(
       return;
     }
 
-    recordActivity(lastEventType);
-
     try {
       const parsed = JSON.parse(trimmed) as unknown;
       streamEventCount += 1;
-      lastEventType = extractEventType(parsed) ?? "stream-event";
+      const observedEventType = extractObservedEventType(parsed) ?? "stream-event";
+      recordActivity(observedEventType);
+      const progressEvent = extractStreamProgressEvent(stage.name, parsed);
+      if (progressEvent) {
+        appendRuntimeEvent(eventsPath, {
+          ts: nowIso(),
+          ...progressEvent,
+        }, warnings);
+      }
     } catch {
       streamParseErrors += 1;
-      lastEventType = "stream-parse-error";
+      recordActivity("stream-parse-error");
       warnings.push(`Failed to parse ${stage.name} stream output line ${streamParseErrors}.`);
     }
   };
 
   child.stdout.on("data", (chunk: Buffer) => {
     streamFile.write(chunk);
+    runtimeSnapshot.last_stdout_at = nowIso();
 
     const text = chunk.toString();
     streamBuffer += text;
@@ -349,15 +337,57 @@ async function runStageOnce(
 
   child.stderr.on("data", (chunk: Buffer) => {
     stderrFile.write(chunk);
+    runtimeSnapshot.last_stderr_at = nowIso();
   });
 
   let timedOut = false;
   let killTimer: ReturnType<typeof setTimeout> | null = null;
-  const timeoutTimer = setTimeout(() => {
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearTimers = (): void => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+    if (timeoutTimer) {
+      clearTimeout(timeoutTimer);
+      timeoutTimer = null;
+    }
+    if (killTimer) {
+      clearTimeout(killTimer);
+      killTimer = null;
+    }
+  };
+
+  heartbeatTimer = setInterval(() => {
+    runtimeSnapshot.heartbeat_at = nowIso();
+    appendRuntimeEvent(eventsPath, {
+      ts: runtimeSnapshot.heartbeat_at,
+      type: "heartbeat",
+      stage: stage.name,
+      pid: child.pid ?? null,
+    }, warnings);
+    flushRuntimeSnapshot();
+  }, HEARTBEAT_INTERVAL_MS);
+
+  timeoutTimer = setTimeout(() => {
     timedOut = true;
+    appendRuntimeEvent(eventsPath, {
+      ts: nowIso(),
+      type: "timeout_sent",
+      stage: stage.name,
+      signal: "SIGTERM",
+    }, warnings);
     child.kill("SIGTERM");
     killTimer = setTimeout(() => {
       try {
+        appendRuntimeEvent(eventsPath, {
+          ts: nowIso(),
+          type: "kill_sent",
+          stage: stage.name,
+          signal: "SIGKILL",
+        }, warnings);
         child.kill("SIGKILL");
       } catch {
         // Process already exited.
@@ -366,16 +396,32 @@ async function runStageOnce(
   }, timeoutMs);
 
   const exitCode = await new Promise<number>((resolveExit) => {
-    child.once("error", () => resolveExit(1));
-    child.once("close", (code) => resolveExit(timedOut ? 124 : (code ?? 1)));
+    let settled = false;
+    const settle = (code: number): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimers();
+      resolveExit(code);
+    };
+    child.once("error", () => settle(1));
+    child.once("close", (code) => settle(timedOut ? 124 : (code ?? 1)));
   });
-
-  clearTimeout(timeoutTimer);
-  if (killTimer) clearTimeout(killTimer);
 
   if (streamBuffer.trim().length > 0) {
     processStructuredLine(streamBuffer);
   }
+
+  runtimeSnapshot.runtime_state = timedOut ? "timed_out" : "exited";
+  appendRuntimeEvent(eventsPath, {
+    ts: nowIso(),
+    type: "process_exited",
+    stage: stage.name,
+    exit_code: exitCode,
+    timed_out: timedOut,
+  }, warnings);
+  flushRuntimeSnapshot();
 
   streamFile.end();
   stderrFile.end();
@@ -392,8 +438,13 @@ async function runStageOnce(
     finishedAt: nowIso(),
     streamPath,
     stderrPath,
+    eventsPath,
+    runtimePath,
     lastActivityAt,
     lastEventType,
+    heartbeatAt: runtimeSnapshot.heartbeat_at,
+    lastStdoutAt: runtimeSnapshot.last_stdout_at,
+    lastStderrAt: runtimeSnapshot.last_stderr_at,
     streamEventCount,
     streamParseErrors,
     warnings,
@@ -516,7 +567,6 @@ function writeStageStatus(
   stage: StageDefinition,
   attempt: StageAttemptResult,
   evaluation: StageEvaluation,
-  attempts: number,
 ): void {
   writeFileSync(
     statusPath,
@@ -530,11 +580,15 @@ function writeStageStatus(
         exit_code: attempt.exitCode,
         success: evaluation.success,
         timed_out: attempt.timedOut,
-        attempts,
         stream_log: attempt.streamPath,
         stderr_log: attempt.stderrPath,
+        events_log: attempt.eventsPath,
+        runtime_log: attempt.runtimePath,
         last_activity_at: attempt.lastActivityAt,
         last_event_type: attempt.lastEventType,
+        heartbeat_at: attempt.heartbeatAt,
+        last_stdout_at: attempt.lastStdoutAt,
+        last_stderr_at: attempt.lastStderrAt,
         stream_event_count: attempt.streamEventCount,
         stream_parse_errors: attempt.streamParseErrors,
         artifact_presence: evaluation.artifactPresence,
@@ -552,47 +606,56 @@ async function runStage(
   stage: StageDefinition,
   workdir: string,
   timeoutMs: number,
-  maxRetries: number,
   commandEnv: Record<string, string>,
 ): Promise<StageResult> {
   const statusPath = resolve(stage.stageDir, "status.json");
 
-  let attempts = 0;
-  let lastAttempt: StageAttemptResult | null = null;
-  let lastEvaluation: StageEvaluation | null = null;
+  cleanupStageFiles(stage);
+  const attempt = await runStageOnce(stage, workdir, timeoutMs, commandEnv);
 
-  for (let attemptIndex = 0; attemptIndex <= maxRetries; attemptIndex += 1) {
-    if (attemptIndex > 0) {
-      const delayMs = 2000 * Math.pow(2, attemptIndex - 1);
-      process.stderr.write(`[${stage.name}] retry ${attemptIndex}/${maxRetries} in ${delayMs}ms\n`);
-      await new Promise<void>((resolveDelay) => setTimeout(resolveDelay, delayMs));
-    }
+  appendRuntimeEvent(attempt.eventsPath, {
+    ts: nowIso(),
+    type: "validation_started",
+    stage: stage.name,
+  }, attempt.warnings);
+  writeRuntimeSnapshot(attempt.runtimePath, {
+    stage: stage.name,
+    runtime_state: "validating",
+    pid: undefined,
+    started_at: attempt.startedAt,
+    heartbeat_at: attempt.heartbeatAt,
+    last_stdout_at: attempt.lastStdoutAt,
+    last_stderr_at: attempt.lastStderrAt,
+  }, attempt.warnings);
 
-    attempts = attemptIndex + 1;
-    cleanupStageFiles(stage);
-    lastAttempt = await runStageOnce(stage, workdir, timeoutMs, commandEnv);
-    lastEvaluation = evaluateStageArtifacts(stage, lastAttempt);
-    writeStageStatus(statusPath, stage, lastAttempt, lastEvaluation, attempts);
-
-    if (lastEvaluation.success || lastAttempt.timedOut) {
-      break;
-    }
-  }
-
-  if (!lastAttempt || !lastEvaluation) {
-    throw new Error(`Stage ${stage.name} never executed.`);
-  }
+  const evaluation = evaluateStageArtifacts(stage, attempt);
+  appendRuntimeEvent(attempt.eventsPath, {
+    ts: nowIso(),
+    type: "validation_completed",
+    stage: stage.name,
+    success: evaluation.success,
+    failure_reason: evaluation.failureReason ?? null,
+  }, attempt.warnings);
+  writeRuntimeSnapshot(attempt.runtimePath, {
+    stage: stage.name,
+    runtime_state: evaluation.success ? "complete" : (attempt.timedOut ? "timed_out" : "failed"),
+    pid: undefined,
+    started_at: attempt.startedAt,
+    heartbeat_at: attempt.heartbeatAt,
+    last_stdout_at: attempt.lastStdoutAt,
+    last_stderr_at: attempt.lastStderrAt,
+  }, attempt.warnings);
+  writeStageStatus(statusPath, stage, attempt, evaluation);
 
   return {
     name: stage.name,
-    exit_code: lastAttempt.exitCode,
-    success: lastEvaluation.success,
-    timed_out: lastAttempt.timedOut,
-    attempts,
-    failure_reason: lastEvaluation.failureReason,
-    missing_artifacts: lastEvaluation.missingArtifacts,
-    artifact_presence: lastEvaluation.artifactPresence,
-    validation_errors: lastEvaluation.validationErrors,
+    exit_code: attempt.exitCode,
+    success: evaluation.success,
+    timed_out: attempt.timedOut,
+    failure_reason: evaluation.failureReason,
+    missing_artifacts: evaluation.missingArtifacts,
+    artifact_presence: evaluation.artifactPresence,
+    validation_errors: evaluation.validationErrors,
   };
 }
 
@@ -608,8 +671,6 @@ export function parseCliOptions(args: string[]): CliOptions | null {
       options: {
         target: { type: "string" },
         "run-dir": { type: "string" },
-        "review-profile": { type: "string" },
-        "judge-profile": { type: "string" },
         "claude-prompt-template": { type: "string" },
         "codex-prompt-template": { type: "string" },
         "judge-prompt-template": { type: "string" },
@@ -620,7 +681,6 @@ export function parseCliOptions(args: string[]): CliOptions | null {
         "skip-html": { type: "boolean" },
         "open-html": { type: "boolean" },
         timeout: { type: "string" },
-        retries: { type: "string" },
         help: { type: "boolean", short: "h" },
       },
     }));
@@ -638,7 +698,7 @@ export function parseCliOptions(args: string[]): CliOptions | null {
   const target = getString(values.target);
   if (!target) {
     console.error("Error: --target is required.");
-    printHelp();
+    console.error("Run `review-council --help` for usage.");
     process.exitCode = 1;
     return null;
   }
@@ -647,14 +707,6 @@ export function parseCliOptions(args: string[]): CliOptions | null {
   const timeoutMs = timeoutValue ? parseInt(timeoutValue, 10) : DEFAULT_TIMEOUT_MS;
   if (Number.isNaN(timeoutMs) || timeoutMs <= 0) {
     console.error(`Invalid --timeout: "${timeoutValue}". Must be a positive integer (ms).`);
-    process.exitCode = 1;
-    return null;
-  }
-
-  const retriesValue = getString(values.retries);
-  const maxRetries = retriesValue ? parseInt(retriesValue, 10) : DEFAULT_MAX_RETRIES;
-  if (Number.isNaN(maxRetries) || maxRetries < 0) {
-    console.error(`Invalid --retries: "${retriesValue}". Must be a non-negative integer.`);
     process.exitCode = 1;
     return null;
   }
@@ -675,8 +727,6 @@ export function parseCliOptions(args: string[]): CliOptions | null {
     runDir: getString(values["run-dir"]),
     enableClaude: !noClaude,
     enableCodex: !noCodex,
-    reviewProfileId: getString(values["review-profile"]) ?? "default",
-    judgeProfileId: getString(values["judge-profile"]) ?? "default",
     claudePromptTemplate: getString(values["claude-prompt-template"]),
     codexPromptTemplate: getString(values["codex-prompt-template"]),
     judgePromptTemplate: getString(values["judge-prompt-template"]),
@@ -685,7 +735,6 @@ export function parseCliOptions(args: string[]): CliOptions | null {
     openHtml: getBoolean(values["open-html"]),
     skillPaths: skillPathsValue ? normalizeSkillPaths(skillPathsValue) : undefined,
     timeoutMs,
-    maxRetries,
   };
 }
 
@@ -695,25 +744,10 @@ function resolvePromptSelections(
   judgeEnabled: boolean,
 ): PromptSelections {
   return {
-    claude: resolvePromptSelection(
-      packageDir,
-      "review",
-      options.reviewProfileId,
-      options.claudePromptTemplate,
-    ),
-    codex: resolvePromptSelection(
-      packageDir,
-      "review",
-      options.reviewProfileId,
-      options.codexPromptTemplate,
-    ),
+    claude: resolvePromptSelection(packageDir, "review", options.claudePromptTemplate),
+    codex: resolvePromptSelection(packageDir, "review", options.codexPromptTemplate),
     judge: judgeEnabled
-      ? resolvePromptSelection(
-        packageDir,
-        "judge",
-        options.judgeProfileId,
-        options.judgePromptTemplate,
-      )
+      ? resolvePromptSelection(packageDir, "judge", options.judgePromptTemplate)
       : null,
   };
 }
@@ -815,6 +849,8 @@ function serializeExecutionMetadata(stage: StageDefinition | undefined): Record<
     artifacts: {
       stream_log: stage.execution.artifacts.streamLog,
       stderr_log: stage.execution.artifacts.stderrLog,
+      events_log: stage.execution.artifacts.eventsLog,
+      runtime_log: stage.execution.artifacts.runtimeLog,
     },
   };
 }
@@ -845,8 +881,6 @@ function writeRunMetadata(preparedRun: PreparedRun): void {
         skill_dir: packageDir,
         run_dir: paths.runDir,
         selected_skills: options.skillPaths ?? [],
-        review_profile: options.reviewProfileId,
-        judge_profile: options.judgeProfileId,
         prompt_templates: {
           claude: {
             path: promptSelections.claude.templatePath,
@@ -949,8 +983,12 @@ function prepareRun(options: CliOptions): PreparedRun | null {
       stageDefinitions,
     });
 
+    const enabledBinaries = new Set<string>();
     for (const stage of stageDefinitions) {
-      assertBinaryExists(stage.execution.command, cwd);
+      enabledBinaries.add(stage.name === "claude" ? "claude" : "codex");
+    }
+    for (const binary of enabledBinaries) {
+      assertBinaryOnPath(binary);
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
@@ -981,7 +1019,6 @@ async function runReviewerStages(preparedRun: PreparedRun): Promise<ReviewerExec
         stage,
         preparedRun.cwd,
         preparedRun.options.timeoutMs,
-        preparedRun.options.maxRetries,
         preparedRun.commandEnv,
       ),
     ),
@@ -1025,7 +1062,6 @@ async function runJudgeStage(
     judgeStage,
     preparedRun.cwd,
     preparedRun.options.timeoutMs,
-    preparedRun.options.maxRetries,
     preparedRun.commandEnv,
   );
 }
@@ -1063,7 +1099,6 @@ function finalizeRun(
       success: result.success,
       timed_out: result.timed_out,
       exit_code: result.exit_code,
-      attempts: result.attempts,
       failure_reason: result.failure_reason ?? null,
       missing_artifacts: result.missing_artifacts ?? [],
     })),
@@ -1075,25 +1110,37 @@ function finalizeRun(
 }
 
 export function printHelp(commandName: string = "review-council"): void {
-  console.error(`usage: ${commandName} --target <target> [options]
+  console.log(`${commandName} — Run model-parallel code review and synthesize findings
 
-options:
-  --target <target>                       Review target label
-  --run-dir <dir>                         Output directory for this run
-  --no-claude                             Skip Claude reviewer
-  --no-codex                              Skip Codex reviewer
-  --skill-paths <paths>                   Comma-separated paths to skill directories
-  --review-profile <id>                   Reviewer prompt profile (default: default)
-  --judge-profile <id>                    Judge prompt profile (default: default)
-  --claude-prompt-template <path>         Override Claude reviewer prompt template
-  --codex-prompt-template <path>          Override Codex reviewer prompt template
-  --judge-prompt-template <path>          Override judge prompt template
-  --skip-judge                            Skip the judge stage
-  --skip-html                             Skip HTML rendering
-  --open-html                             Open index.html after rendering (macOS)
-  --timeout <ms>                          Stage timeout in ms (default: 300000)
-  --retries <n>                           Max retries per stage on failure (default: 2)
-  --help                                  Show this help output`);
+Usage: ${commandName} --target <target> [options]
+
+Description:
+  Runs Claude and Codex in parallel against the specified review target,
+  then synthesizes their outputs through an LLM judge. Writes structured
+  artifacts (findings.json, status.json, events.jsonl, runtime.json) per
+  stage to docs/reviews/<run-id>/ and renders a static HTML report.
+
+Required:
+  --target <target>                Review target label (e.g. "staged changes")
+
+Options:
+  --run-dir <dir>                  Output directory for this run
+  --no-claude                      Skip the Claude reviewer
+  --no-codex                       Skip the Codex reviewer
+  --skill-paths <paths>            Comma-separated paths to review skill directories
+  --claude-prompt-template <path>  Override Claude reviewer prompt template
+  --codex-prompt-template <path>   Override Codex reviewer prompt template
+  --judge-prompt-template <path>   Override judge prompt template
+  --skip-judge                     Skip the judge stage
+  --skip-html                      Skip HTML rendering
+  --open-html                      Open index.html after rendering (macOS)
+  --timeout <ms>                   Stage timeout in ms (default: 900000)
+  -h, --help                       Show this help
+
+Examples:
+  ${commandName} --target "staged changes" --open-html
+  ${commandName} --target "branch main..feature" --no-codex
+  ${commandName} --target "pr 123" --skill-paths /path/to/architecture-review`);
 }
 
 export async function main(args: string[] = process.argv.slice(2)): Promise<void> {

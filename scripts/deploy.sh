@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Local npm publish with preflight checks (modeled after simple-auth deploy.sh).
+# Local npm publish with preflight checks for the unified skill-issue package.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 VERSION_FILE="$ROOT_DIR/VERSION"
-
-NPM_PKG="@crown-dev-studios/review-council"
+PACKAGE_JSON="$ROOT_DIR/package.json"
+NPM_PKG="@crown-dev-studios/skill-issue"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -57,11 +57,8 @@ get_version() {
 
 check_version_matches_package_json() {
   local version="$1"
-  local pkg_json="$ROOT_DIR/package.json"
-  local pkg_version
-  pkg_version=$(node -e "console.log(require(process.argv[1]).version)" "$pkg_json")
-  if [[ "$pkg_version" != "$version" ]]; then
-    log_error "package.json version $pkg_version does not match VERSION ($version)"
+  if ! grep -Fq "\"version\": \"$version\"" "$PACKAGE_JSON"; then
+    log_error "package.json version does not match VERSION ($version)"
     exit 1
   fi
   log_info "VERSION and package.json agree: $version"
@@ -75,62 +72,54 @@ check_clean_working_dir() {
   fi
   if [[ -n $(git -C "$ROOT_DIR" status --porcelain) ]]; then
     log_error "Working directory is not clean. Commit or stash changes first."
-    git -C "$ROOT_DIR" status --short
     exit 1
   fi
-  log_info "Working directory is clean"
+  log_info "Working tree is clean"
 }
 
 check_git_tag_exists() {
   local version="$1"
-  local tag="v$version"
-  log_step "Checking git tag"
-  if ! git -C "$ROOT_DIR" tag -l "$tag" | grep -q "^${tag}$"; then
-    log_error "Git tag $tag does not exist"
-    echo "Create it with: ./scripts/bump-version.sh … or git tag -a $tag -m \"Release $tag\""
+  log_step "Checking release tag"
+  local tag="v${version}"
+  if git -C "$ROOT_DIR" tag -l "$tag" | grep -Fxq -- "$tag"; then
+    log_info "Found local tag ${tag}"
+  else
+    log_error "Missing local tag ${tag}"
     exit 1
   fi
-  log_info "Git tag $tag exists"
 }
 
 check_not_already_published() {
   local version="$1"
   log_step "Checking npm registry"
-  if npm view "${NPM_PKG}@${version}" version >/dev/null 2>&1; then
-    log_warn "${NPM_PKG}@${version} is already on the registry"
-    if [[ "$DRY_RUN" == true ]]; then
-      return 0
-    fi
-    read -r -p "Continue anyway? (y/N) " -n 1 reply
-    echo ""
-    if [[ ! "$reply" =~ ^[Yy]$ ]]; then
-      log_error "Deploy cancelled"
-      exit 1
-    fi
-  else
-    log_info "${NPM_PKG}@${version} not yet published"
+  if pnpm view "${NPM_PKG}@${version}" version >/dev/null 2>&1; then
+    log_error "${NPM_PKG}@${version} is already published"
+    exit 1
   fi
+  log_info "${NPM_PKG}@${version} is available to publish"
 }
 
 push_git() {
   local version="$1"
-  local tag="v$version"
-  log_step "Pushing git branch and tag"
-  if [[ "$DRY_RUN" == true ]]; then
-    log_warn "[DRY RUN] Would push current branch and $tag"
-    return 0
-  fi
+  log_step "Pushing git refs"
   local branch
   branch=$(git -C "$ROOT_DIR" branch --show-current)
+  if [[ "$DRY_RUN" == true ]]; then
+    log_warn "[DRY RUN] Would push branch ${branch} and tag v${version}"
+    return 0
+  fi
   git -C "$ROOT_DIR" push origin "$branch"
-  git -C "$ROOT_DIR" push origin "$tag"
-  log_info "Pushed $branch and $tag"
+  git -C "$ROOT_DIR" push origin "v${version}"
+  log_info "Pushed branch ${branch} and tag v${version}"
 }
 
 install_and_verify() {
-  log_step "Install, build, test, verify package"
+  log_step "Installing, building, testing, and verifying"
   if [[ "$DRY_RUN" == true ]]; then
-    log_warn "[DRY RUN] Would run: pnpm install --frozen-lockfile && pnpm run build && pnpm run test && pnpm run verify:package"
+    log_warn "[DRY RUN] Would run: pnpm install --frozen-lockfile"
+    log_warn "[DRY RUN] Would run: pnpm run build"
+    log_warn "[DRY RUN] Would run: pnpm run test"
+    log_warn "[DRY RUN] Would run: pnpm run verify:package"
     return 0
   fi
   (cd "$ROOT_DIR" && pnpm install --frozen-lockfile)
@@ -144,10 +133,10 @@ publish_npm() {
   local version="$1"
   log_step "Publishing to npm"
   if [[ "$DRY_RUN" == true ]]; then
-    log_warn "[DRY RUN] Would run: pnpm publish --access public --no-git-checks"
+    log_warn "[DRY RUN] Would run: pnpm publish --access public"
     return 0
   fi
-  (cd "$ROOT_DIR" && pnpm publish --access public --no-git-checks)
+  (cd "$ROOT_DIR" && pnpm publish --access public)
   log_info "Published ${NPM_PKG}@${version}"
 }
 
@@ -179,7 +168,7 @@ check_version_matches_package_json "$VERSION"
 
 echo ""
 echo -e "${GREEN}╔═══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║     review-council deploy v${VERSION}                      ║${NC}"
+echo -e "${GREEN}║      skill-issue deploy v${VERSION}                       ║${NC}"
 echo -e "${GREEN}╚═══════════════════════════════════════════════════════════╝${NC}"
 if [[ "$DRY_RUN" == true ]]; then
   echo ""
@@ -218,6 +207,5 @@ log_step "Deploy complete"
 echo -e "${GREEN}Published:${NC} https://www.npmjs.com/package/${NPM_PKG}"
 echo ""
 echo "Smoke-check:"
-echo "  npm view ${NPM_PKG} version"
-echo "  npx ${NPM_PKG} --help"
-echo ""
+echo "  npx ${NPM_PKG} second-opinion --help"
+echo "  npx ${NPM_PKG} review-council --help"

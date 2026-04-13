@@ -72,7 +72,7 @@ If the diff is trivial (<20 lines, single file, obvious fix), skip additional re
 Run the orchestrator with `--skill-paths` pointing at the selected skill directories:
 
 ```bash
-npx @crown-dev-studios/review-council \
+npx @crown-dev-studios/skill-issue review-council \
   --target "<target>" \
   --skill-paths "/path/to/architecture-review,/path/to/plan-compliance" \
   --open-html

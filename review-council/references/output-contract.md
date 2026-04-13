@@ -13,6 +13,8 @@ docs/reviews/<run-id>/
     findings.json
     done.json
     status.json
+    events.jsonl
+    runtime.json
     stream.jsonl
     stderr.log
   codex/
@@ -20,6 +22,8 @@ docs/reviews/<run-id>/
     findings.json
     done.json
     status.json
+    events.jsonl
+    runtime.json
     stream.jsonl
     stderr.log
   judge/
@@ -27,6 +31,8 @@ docs/reviews/<run-id>/
     verdict.json
     done.json
     status.json
+    events.jsonl
+    runtime.json
     stream.jsonl
     stderr.log
 ```
@@ -41,6 +47,10 @@ Each model reviewer (Claude, Codex) writes:
 - `findings.json`: structured findings matching `schemas/review-findings.schema.json`
 - `done.json`: sentinel file confirming the agent finished writing artifacts
 - `stream.jsonl`: raw JSONL stdout event stream for the stage
+- `events.jsonl`: Review Council runtime event log for the stage (stage start/exit, heartbeats, parsed stream progress)
+- `runtime.json`: latest runtime snapshot for the stage
+
+`stream.jsonl` is diagnostic transport only. The authoritative reviewer outputs are `report.md`, `findings.json`, and `done.json`.
 
 `done.json` shape:
 
@@ -61,6 +71,8 @@ The judge writes:
 - `verdict.json`: adjudicated findings matching `schemas/judge-verdict.schema.json`
 - `done.json`: sentinel confirming the judge finished
 
+For the judge as well, `stream.jsonl` is diagnostic transport only. The authoritative outputs are `summary.md`, `verdict.json`, and `done.json`.
+
 `review-council` also derives `follow-ups.md` at the run root from `verdict.json.todo_recommendations` and `verdict.json.dependency_order`. This is the human-readable next-step list for the run.
 
 ## Stage Status
@@ -71,17 +83,21 @@ The orchestrator writes `status.json` per stage with these fields:
 {
   "stage": "claude",
   "command_id": "claude-review",
-  "command": "claude --dangerously-skip-permissions --verbose --output-format stream-json --include-partial-messages -p ...",
+  "command": "claude --model claude-opus-4-6 --effort max --dangerously-skip-permissions --verbose --output-format stream-json --include-partial-messages -p ...",
   "started_at": "2026-03-07T18:25:00Z",
   "finished_at": "2026-03-07T18:30:00Z",
   "exit_code": 0,
   "success": true,
   "timed_out": false,
-  "attempts": 1,
   "stream_log": "/path/to/stream.jsonl",
   "stderr_log": "/path/to/stderr.log",
+  "events_log": "/path/to/events.jsonl",
+  "runtime_log": "/path/to/runtime.json",
   "last_activity_at": "2026-03-07T18:29:59Z",
-  "last_event_type": "stop",
+  "last_event_type": "content_block_start",
+  "heartbeat_at": "2026-03-07T18:29:45Z",
+  "last_stdout_at": "2026-03-07T18:29:59Z",
+  "last_stderr_at": null,
   "stream_event_count": 42,
   "stream_parse_errors": 0,
   "artifact_presence": {
@@ -111,10 +127,14 @@ Key fields:
 |---|---|---|
 | `exit_code` | number | Process exit code. `124` on timeout. |
 | `timed_out` | boolean | Whether the stage was killed due to timeout. |
-| `attempts` | number | Total attempts (1 = no retries). |
 | `stream_log` | string | JSONL stdout event stream for the stage. |
+| `events_log` | string | Review Council runtime log for the stage, including selected stream progress events. |
+| `runtime_log` | string | Latest live runtime snapshot for the stage. |
 | `last_activity_at` | string? | Last observed stream activity timestamp. |
 | `last_event_type` | string? | Last observed stream event type. |
+| `heartbeat_at` | string? | Last parent-owned liveness heartbeat timestamp. |
+| `last_stdout_at` | string? | Last stdout write timestamp. |
+| `last_stderr_at` | string? | Last stderr write timestamp. |
 | `stream_event_count` | number | Parsed stdout event count for the attempt. |
 | `stream_parse_errors` | number | Number of stdout lines that failed JSON parsing. |
 | `missing_artifacts` | array | Required artifacts absent for the final attempt. |
@@ -133,19 +153,25 @@ Key fields:
     "claude": {
       "command_id": "claude-review",
       "artifacts": {
-        "stream_log": "/path/to/stream.jsonl"
+        "stream_log": "/path/to/stream.jsonl",
+        "events_log": "/path/to/events.jsonl",
+        "runtime_log": "/path/to/runtime.json"
       }
     },
     "codex": {
       "command_id": "codex-review",
       "artifacts": {
-        "stream_log": "/path/to/stream.jsonl"
+        "stream_log": "/path/to/stream.jsonl",
+        "events_log": "/path/to/events.jsonl",
+        "runtime_log": "/path/to/runtime.json"
       }
     },
     "judge": {
       "command_id": "codex-judge",
       "artifacts": {
-        "stream_log": "/path/to/stream.jsonl"
+        "stream_log": "/path/to/stream.jsonl",
+        "events_log": "/path/to/events.jsonl",
+        "runtime_log": "/path/to/runtime.json"
       }
     }
   }

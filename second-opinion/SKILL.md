@@ -36,18 +36,18 @@ When this skill is invoked:
 2. **Run the review script**:
 
 ```bash
-npx @crown-dev-studios/second-opinion --cwd "$PWD" --source SOURCE --session-id SESSION_ID [--focus "REVIEW_FOCUS"]
+npx @crown-dev-studios/skill-issue second-opinion --cwd "$PWD" --source SOURCE --session-id SESSION_ID [--focus "REVIEW_FOCUS"]
 ```
 
 - The `--focus` flag is only needed if the user specified a custom focus.
-- This command requires `@crown-dev-studios/second-opinion` to be resolvable by `npx`. Copying the skill directory alone is not enough.
+- This command requires `@crown-dev-studios/skill-issue` to be resolvable by `npx`. Copying the skill directory alone is not enough.
 - When this skill runs inside Claude, pass `--source claude --session-id "${CLAUDE_SESSION_ID}"` so Codex reviews the current Claude session deterministically.
 - When this skill runs inside Codex, pass `--source codex --session-id "${CODEX_THREAD_ID}"` so Claude reviews the current Codex thread deterministically.
 - The caller must pass both `--source` and `--session-id` explicitly. The CLI does not auto-detect them.
 - The script calls the other CLI directly as a subprocess and parses its structured JSONL output.
 - It reads the full session file from disk (not affected by context compaction).
 - Timeout is 5 minutes by default. Override with `--timeout-ms` if needed.
-- For local development from a source checkout, anchor the command to that checkout, for example `pnpm --dir /absolute/path/to/second-opinion start -- --cwd "$PWD"`.
+- For local development from a source checkout, anchor the command to that checkout, for example `pnpm --dir /absolute/path/to/skill-issue run second-opinion -- --cwd "$PWD"`.
 
 3. **Present the review**: Show the reviewer's output to the user. Add a brief note about which model reviewed it.
 
@@ -85,7 +85,7 @@ When this skill runs inside Claude, the source transcript must be the current Cl
 Example:
 
 ```bash
-npx @crown-dev-studios/second-opinion --cwd "$PWD" --source claude --session-id "${CLAUDE_SESSION_ID}" [--focus "REVIEW_FOCUS"]
+npx @crown-dev-studios/skill-issue second-opinion --cwd "$PWD" --source claude --session-id "${CLAUDE_SESSION_ID}" [--focus "REVIEW_FOCUS"]
 ```
 
 ### Codex

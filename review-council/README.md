@@ -1,6 +1,6 @@
 # Review Council
 
-Review Council is a standalone skill repo for model-parallel code review. It runs Claude and Codex in parallel with selected skill references (architecture-review, testing-philosophy, plan-compliance) passed into reviewer prompts as additional review lenses, then synthesizes all findings through an LLM judge with semantic deduplication, contradiction detection, and dependency ordering.
+Review Council is a CLI and companion skill for model-parallel code review. It runs Claude and Codex in parallel with selected skill references (architecture-review, testing-philosophy, plan-compliance) passed into reviewer prompts as additional review lenses, then synthesizes all findings through an LLM judge with semantic deduplication, contradiction detection, and dependency ordering.
 
 Use it when you want:
 
@@ -15,6 +15,8 @@ The orchestrator handles the happy path and common failure modes:
 - Stage timeouts with two-phase kill (SIGTERM then SIGKILL) prevent hung runs
 - Automatic retry with exponential backoff handles transient failures
 - Every stage emits a JSONL stdout event stream for diagnosis
+- Claude runs with `claude-opus-4-6 --effort max`
+- Codex reviewer and judge run with `gpt-5.4` plus `model_reasoning_effort="xhigh"`
 - Partial reviewer failure still allows the judge to run on available data
 - Failed stages surface stderr excerpts, validation errors, warnings, and stream log paths in the HTML report
 
@@ -27,8 +29,10 @@ The orchestrator handles the happy path and common failure modes:
 
 ## Install
 
+Review Council now ships inside the unified `@crown-dev-studios/skill-issue` package:
+
 ```bash
-npx @crown-dev-studios/review-council --target "staged changes" --open-html
+npx @crown-dev-studios/skill-issue review-council --target "staged changes" --open-html
 ```
 
 ## Quick Start
@@ -36,7 +40,7 @@ npx @crown-dev-studios/review-council --target "staged changes" --open-html
 From the project root you want to review:
 
 ```bash
-npx @crown-dev-studios/review-council \
+npx @crown-dev-studios/skill-issue review-council \
   --target "staged changes" \
   --open-html
 ```
@@ -62,7 +66,7 @@ Main outputs:
 --skill-paths <paths>             Comma-separated paths to skill directories
 --open-html                       Open index.html after rendering (macOS)
 --skip-html                       Skip HTML rendering
---timeout <ms>                    Stage timeout in ms (default: 300000)
+--timeout <ms>                    Stage timeout in ms (default: 900000)
 --retries <n>                     Max retries per stage on failure (default: 2)
 ```
 
@@ -73,7 +77,10 @@ There are no command override or sentinel bypass flags. Review Council uses cano
 ## Operational Rules
 
 - Built-in reviewer commands are non-interactive and emit JSONL to stdout.
+- `stdout` is diagnostic transport only; the authoritative outputs are the required files in each stage directory plus `done.json`.
 - Keep reviewer artifacts inside the run directory.
+- Claude progress is derived from live `stream-json` stdout events, and Claude completion is determined by subprocess completion plus artifact validation.
+- Codex and the judge keep their runtime `notify` callback wiring.
 - Selected skills are passed into reviewer prompts as additional review lenses for the run; the orchestrator does not inline local `SKILL.md` contents.
 - Do not create authoritative files in `todos/` during raw review.
 - If you reuse `workflows-review`, run each reviewer in a separate worktree.
@@ -93,16 +100,18 @@ If a stage exits `0` but does not write `done.json`, the stage is incomplete and
 
 ## Publishing (maintainers)
 
-Canonical release version lives in the [`VERSION`](VERSION) file and must match `version` in [`package.json`](package.json).
+Review Council is released through the root [`package.json`](../package.json) and root [`VERSION`](../VERSION) file.
 
 **Prerequisites**
 
 - [`npm login`](https://docs.npmjs.com/cli/v11/commands/npm-login) (or another auth method `pnpm publish` can use for the public registry)
 - A **clean** git working tree in this repository
 - Git tag `vX.Y.Z` present locally before deploy (created by the bump script or manually)
-- Permission to publish `@crown-dev-studios/review-council` on npm
+- Permission to publish `@crown-dev-studios/skill-issue` on npm
 
 **Scripts (same idea as `simple-auth`)**
+
+Run these from the repo root.
 
 | Step | Command |
 |------|---------|
@@ -114,14 +123,14 @@ Canonical release version lives in the [`VERSION`](VERSION) file and must match 
 
 **Typical release**
 
-1. `./scripts/bump-version.sh patch` — updates `VERSION`, `package.json`, `pnpm-lock.yaml`, commits, tags `v…`, pushes (omit `--no-push` / `--no-tag` as needed).
+1. `./scripts/bump-version.sh patch` — updates the root `VERSION`, root `package.json`, and root `pnpm-lock.yaml`, commits, tags `v…`, pushes (omit `--no-push` / `--no-tag` as needed).
 2. `./scripts/check-version.sh --require-tag`
 3. `./scripts/deploy.sh --dry-run` (optional)
 4. `./scripts/deploy.sh` — pushes branch + tag (unless `--skip-git`), runs install/build/test/verify, then `pnpm publish --access public`.
 
 Options: `./scripts/deploy.sh --dry-run` (no push/publish), `./scripts/deploy.sh --skip-git` (publish only; you already pushed).
 
-Update [`package.json`](package.json) `repository` / `homepage` / `bugs` if the GitHub repo URL differs from `@crown-dev-studios/review-council` on GitHub.
+Update the root [`package.json`](../package.json) `repository` / `homepage` / `bugs` if the GitHub repo URL differs from `@crown-dev-studios/skill-issue` on GitHub.
 
 ## Files
 

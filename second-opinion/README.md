@@ -12,18 +12,18 @@ Use it when you want a fresh review of the active Claude Code or Codex thread wi
 
 ## Install
 
+Second Opinion now ships inside the unified `@crown-dev-studios/skill-issue` package.
+
 Run it directly:
 
 ```bash
-npx @crown-dev-studios/second-opinion --help
+npx @crown-dev-studios/skill-issue second-opinion --help
 ```
 
-This command only works when `@crown-dev-studios/second-opinion` is resolvable by `npx`, which in practice means the package has been published or otherwise installed in a way `npx` can find.
-
-Other install paths:
+Or install once and use the direct command:
 
 ```bash
-npm install -g @crown-dev-studios/second-opinion
+npm install -g @crown-dev-studios/skill-issue
 second-opinion --help
 ```
 
@@ -32,13 +32,13 @@ second-opinion --help
 From the repo whose thread you want to review, pass the source tool and its active session ID explicitly:
 
 ```bash
-npx @crown-dev-studios/second-opinion --cwd "$PWD" --source claude --session-id "$CLAUDE_SESSION_ID"
-npx @crown-dev-studios/second-opinion --cwd "$PWD" --source codex --session-id "$CODEX_THREAD_ID" "check the security implications"
+npx @crown-dev-studios/skill-issue second-opinion --cwd "$PWD" --source claude --session-id "$CLAUDE_SESSION_ID"
+npx @crown-dev-studios/skill-issue second-opinion --cwd "$PWD" --source codex --session-id "$CODEX_THREAD_ID" "check the security implications"
 ```
 
-The CLI does not auto-detect source or session IDs. The caller is responsible for passing the active tool and its current session/thread ID.
+The CLI does not auto-detect source or session IDs. The caller is responsible for passing the active tool and its current session or thread ID.
 
-By default, the forwarded context excludes chain-of-thought/reasoning. Opt in only when you explicitly want it:
+By default, the forwarded context excludes chain-of-thought or reasoning. Opt in only when you explicitly want it:
 
 ```bash
 second-opinion --cwd "$PWD" --include-thinking
@@ -49,18 +49,18 @@ second-opinion --cwd "$PWD" --include-thinking
 Optional: install the skill docs after the runtime command is already available:
 
 ```bash
-cp -R ~/src/second-opinion ~/.claude/skills/second-opinion
-cp -R ~/src/second-opinion ~/.codex/skills/second-opinion
+cp -R ~/src/skill-issue/second-opinion ~/.claude/skills/second-opinion
+cp -R ~/src/skill-issue/second-opinion ~/.codex/skills/second-opinion
 ```
 
-Copying or symlinking the skill directory only makes the slash command discoverable. It does not make `npx @crown-dev-studios/second-opinion` runnable by itself.
+Copying or symlinking the skill directory only makes the slash command discoverable. It does not make `npx @crown-dev-studios/skill-issue second-opinion` runnable by itself.
 
 The checked-in skill expects the published package command from the caller repo so transcript lookup stays anchored to that repo.
 
-If you want to use the skill before publishing, change the skill command to a path-anchored local checkout, for example:
+If you want to use the skill before publishing, anchor the command to a local checkout:
 
 ```bash
-pnpm --dir /absolute/path/to/second-opinion start -- --cwd "$PWD"
+pnpm --dir /absolute/path/to/skill-issue run second-opinion -- --cwd "$PWD"
 ```
 
 ## CLI Options
@@ -89,9 +89,11 @@ The CLI writes the review prompt to stdin and parses the JSONL stream to return 
 
 ## Development
 
+From the repo root:
+
 ```bash
-cd ~/src/second-opinion
 pnpm install
-pnpm test
+pnpm run build
+pnpm run test:second-opinion
 pnpm run pack:dry-run
 ```

@@ -4,6 +4,9 @@ import { mkdtemp, mkdir, writeFile, utimes } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 async function setMtime(filepath, mtimeMs) {
   const time = new Date(mtimeMs);
@@ -45,8 +48,8 @@ async function writeCodexSession(homeDir, relativePath, sessionId, cwd, mtimeMs,
 }
 
 function runCli(args, env) {
-  return spawnSync(process.execPath, [resolve("dist/index.js"), ...args], {
-    cwd: resolve("."),
+  return spawnSync(process.execPath, [resolve(projectRoot, "dist", "index.js"), ...args], {
+    cwd: projectRoot,
     env: {
       ...process.env,
       CODEX_THREAD_ID: "",
