@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{TITLE}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper:       #f6f4ec;
+      --paper-warm:  #ebe6d8;
+      --panel:       #fffdf7;
+
+      --ink:         #1f2624;
+      --ink-soft:    #3b3429;
+      --ink-muted:   #756a58;
+      --ink-faint:   #a89e8a;
+
+      --rule:        #d9ddd6;
+      --hair:        #ececec;
+
+      --accent:        #496f59;  --accent-soft:    #e7eee7;
+      --info:          #386b7f;  --info-soft:      #e4eef3;
+      --warn:          #9c7135;  --warn-soft:      #f5ece0;
+      --alert:         #985d57;  --alert-soft:     #f5e8e6;
+      --emphasis:      #665f7c;  --emphasis-soft:  #ece9f1;
+
+      --font-display:  'Newsreader', Georgia, serif;
+      --font-body:     'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono:     'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+      --type-display:  clamp(2.4rem, 5vw, 4.4rem);
+      --type-h1:       clamp(1.8rem, 3.2vw, 2.8rem);
+      --type-h2:       clamp(1.3rem, 2.2vw, 1.7rem);
+      --type-h3:       1.2rem;
+      --type-body:     1.02rem;
+      --type-small:    0.875rem;
+      --type-eyebrow:  0.78rem;
+      --type-caption:  0.75rem;
+
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 16px;
+      --space-4: 24px;
+      --space-5: 40px;
+      --space-6: 64px;
+      --space-7: 96px;
+
+      --sidebar-w:     340px;
+      --max-content:   920px;
+      --content-pad:   var(--space-7);
+
+      --duration-base: 150ms;
+      --ease:          cubic-bezier(0.2, 0.0, 0.2, 1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--paper); color: var(--ink);
+      font-family: var(--font-body);
+      font-size: var(--type-body);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .deck {
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+      min-height: 100vh;
+    }
+
+    /* === Sidebar === */
+    .deck-nav {
+      background: var(--paper-warm);
+      border-right: 1px solid var(--rule);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: var(--space-6) var(--space-4);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-5);
+    }
+
+    .masthead { display: grid; gap: var(--space-2); padding-bottom: var(--space-4); border-bottom: 2px solid var(--ink); }
+    .masthead .eyebrow {
+      font-family: var(--font-mono);
+      font-size: var(--type-eyebrow);
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--ink-muted);
+      margin: 0;
+      font-weight: 500;
+    }
+    .masthead-title {
+      font-family: var(--font-display);
+      font-size: 1.7rem;
+      line-height: 1.05;
+      letter-spacing: -0.022em;
+      margin: 0;
+      font-weight: 500;
+    }
+    .masthead-meta {
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-muted);
+      margin: 0;
+      letter-spacing: 0.05em;
+    }
+
+    .deck-nav-list { display: flex; flex-direction: column; }
+    .nav-row {
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: var(--space-2);
+      padding: var(--space-3) 0;
+      border-bottom: 1px solid var(--rule);
+      text-decoration: none;
+      color: var(--ink);
+      transition: opacity var(--duration-base) var(--ease);
+    }
+    .nav-row:hover { opacity: 0.75; }
+    .nav-row.active .nav-title { color: var(--accent); }
+    .nav-row.active .nav-num { color: var(--accent); }
+    .nav-num {
+      font-family: var(--font-mono);
+      color: var(--ink-faint);
+      font-size: 0.9rem;
+      padding-top: 4px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+    }
+    .nav-text { display: flex; flex-direction: column; gap: 2px; }
+    .nav-title {
+      font-family: var(--font-display);
+      font-size: 1.08rem;
+      line-height: 1.2;
+      font-weight: 500;
+    }
+    .nav-tag {
+      font-family: var(--font-display);
+      font-style: italic;
+      color: var(--ink-muted);
+      font-size: 0.9rem;
+      line-height: 1.3;
+    }
+
+    .masthead-footer {
+      margin-top: auto;
+      padding-top: var(--space-4);
+      border-top: 1px solid var(--rule);
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-muted);
+      letter-spacing: 0.04em;
+      line-height: 1.5;
+    }
+
+    /* === Content === */
+    .deck-content {
+      padding: var(--content-pad);
+      max-width: var(--max-content);
+    }
+    /* fadeIn runs ONLY on the section a nav click reveals (.is-entering, added
+       in JS) — never on the base .deck-section selector. The section visible
+       at initial load carries no .is-entering, so it does not animate.
+       design-system forbids fade-in-on-load chrome. */
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .deck-section.hidden { display: none; }
+    .deck-section { display: block; }
+    .deck-section.is-entering { animation: fadeIn 150ms ease-out; }
+
+    /* Mobile */
+    @media (max-width: 880px) {
+      .deck { grid-template-columns: 1fr; }
+      .deck-nav { position: fixed; top: 0; left: 0; right: 0; bottom: auto; height: auto; max-height: 80vh; padding: var(--space-3); z-index: 10; border-right: 0; border-bottom: 1px solid var(--rule); }
+      .deck-nav-list { display: none; }
+      .deck-nav.open .deck-nav-list { display: flex; }
+      .deck-content { padding-top: 100px; padding-left: var(--space-3); padding-right: var(--space-3); }
+      .masthead { padding-bottom: var(--space-2); border-bottom: 1px solid var(--rule); }
+    }
+
+    /* Typography */
+    h1, h2, h3, h4 {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-style: normal;
+      letter-spacing: -0.02em;
+      margin: 0;
+      color: var(--ink);
+    }
+    h1 { font-size: var(--type-display); line-height: 0.98; letter-spacing: -0.028em; }
+    h2 { font-size: var(--type-h1);      line-height: 1.05; }
+    h3 { font-size: var(--type-h2);      line-height: 1.2; }
+    h4 { font-size: var(--type-h3);      line-height: 1.3; }
+
+    p { margin: 0 0 var(--space-3) 0; max-width: 64ch; }
+    p:last-child { margin-bottom: 0; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: var(--type-eyebrow);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--ink-muted);
+      margin: 0 0 var(--space-3) 0;
+      font-weight: 500;
+    }
+
+    .lede {
+      font-family: var(--font-display);
+      font-size: clamp(1.2rem, 2vw, 1.55rem);
+      line-height: 1.4;
+      color: var(--ink-soft);
+      font-weight: 400;
+      max-width: 56ch;
+      margin: var(--space-4) 0;
+    }
+
+    .section-header {
+      padding-bottom: var(--space-4);
+      margin-bottom: var(--space-5);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    /* Pull quote (italic allowed here) */
+    .pull-quote {
+      font-family: var(--font-display);
+      font-style: italic;
+      font-size: clamp(1.4rem, 2.5vw, 1.9rem);
+      line-height: 1.3;
+      color: var(--ink);
+      border-left: 4px solid var(--accent);
+      padding: var(--space-3) 0 var(--space-3) var(--space-4);
+      margin: var(--space-5) 0;
+      max-width: 60ch;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-left: 4px solid var(--accent);
+      border-radius: 2px;
+      padding: var(--space-4) var(--space-5);
+      margin-bottom: var(--space-3);
+    }
+    .card--info  { border-left-color: var(--info); }
+    .card--warn  { border-left-color: var(--warn); }
+    .card--alert { border-left-color: var(--alert); }
+
+    /* KPI strip */
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: var(--space-4);
+      padding: var(--space-4) 0;
+      border-top: 1px solid var(--hair);
+      border-bottom: 1px solid var(--hair);
+      margin: var(--space-5) 0;
+    }
+    .kpi-value {
+      font-family: var(--font-display);
+      font-size: clamp(1.8rem, 3.2vw, 2.6rem);
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      margin: 0 0 var(--space-1) 0;
+    }
+    .kpi-meta {
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-muted);
+      margin: 0 0 var(--space-1) 0;
+      letter-spacing: 0.05em;
+    }
+    .kpi-label {
+      font-size: var(--type-small);
+      color: var(--ink-soft);
+      margin: 0;
+    }
+
+    /* Pills */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border: 1px solid;
+      border-radius: 2px;
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 500;
+    }
+    .pill--accent { background: var(--accent-soft); color: var(--accent); border-color: rgba(73,111,89,0.25); }
+    .pill--info   { background: var(--info-soft);   color: var(--info);   border-color: rgba(56,107,127,0.25); }
+    .pill--warn   { background: var(--warn-soft);   color: var(--warn);   border-color: rgba(156,113,53,0.25); }
+    .pill--alert  { background: var(--alert-soft);  color: var(--alert);  border-color: rgba(152,93,87,0.25); }
+
+    a { color: var(--accent); }
+
+    /* Mobile toggle */
+    .nav-toggle {
+      display: none;
+      background: none;
+      border: 1px solid var(--rule);
+      padding: var(--space-1) var(--space-2);
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      cursor: pointer;
+      color: var(--ink);
+      border-radius: 2px;
+    }
+    @media (max-width: 880px) {
+      .nav-toggle { display: inline-block; align-self: flex-end; }
+    }
+
+    /* Print */
+    @media print {
+      .deck-nav { display: none; }
+      .deck-section.hidden { display: block !important; }
+      .deck { display: block; }
+      .deck-content { padding: 0; max-width: 100%; }
+      .deck-section { page-break-after: always; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="deck">
+
+  <aside class="deck-nav" id="deckNav">
+    <div class="masthead">
+      <p class="eyebrow">{{VOLUME}} · {{ISSUE}}</p>
+      <h1 class="masthead-title">{{TITLE}}</h1>
+      <p class="masthead-meta">For {{AUDIENCE}} · {{DATE}}</p>
+      <button class="nav-toggle" onclick="document.getElementById('deckNav').classList.toggle('open')">Menu</button>
+    </div>
+
+    <nav class="deck-nav-list">
+      <a href="#" class="nav-row active" data-target="hero">
+        <span class="nav-num">01</span>
+        <span class="nav-text">
+          <span class="nav-title">Where this began</span>
+          <span class="nav-tag">Context for the next thirty minutes.</span>
+        </span>
+      </a>
+      <a href="#" class="nav-row" data-target="tldr">
+        <span class="nav-num">02</span>
+        <span class="nav-text">
+          <span class="nav-title">The short version</span>
+          <span class="nav-tag">If you read nothing else, read this.</span>
+        </span>
+      </a>
+      <a href="#" class="nav-row" data-target="method">
+        <span class="nav-num">03</span>
+        <span class="nav-text">
+          <span class="nav-title">How we looked at it</span>
+          <span class="nav-tag">The data, the window, the limits.</span>
+        </span>
+      </a>
+      <a href="#" class="nav-row" data-target="finding-one">
+        <span class="nav-num">04</span>
+        <span class="nav-text">
+          <span class="nav-title">Completion splits by tenure</span>
+          <span class="nav-tag">Where the story is.</span>
+        </span>
+      </a>
+      <a href="#" class="nav-row" data-target="finding-two">
+        <span class="nav-num">05</span>
+        <span class="nav-text">
+          <span class="nav-title">Message fatigue</span>
+          <span class="nav-tag">What the data says, what it doesn't.</span>
+        </span>
+      </a>
+      <a href="#" class="nav-row" data-target="recommendations">
+        <span class="nav-num">06</span>
+        <span class="nav-text">
+          <span class="nav-title">What we'd do next</span>
+          <span class="nav-tag">Three moves worth making.</span>
+        </span>
+      </a>
+      <a href="#" class="nav-row" data-target="open-questions">
+        <span class="nav-num">07</span>
+        <span class="nav-text">
+          <span class="nav-title">What's still open</span>
+          <span class="nav-tag">Where we couldn't get clean answers.</span>
+        </span>
+      </a>
+    </nav>
+
+    <div class="masthead-footer">
+      Prepared by {{AUTHOR}}<br>
+      {{SOURCE}}
+    </div>
+  </aside>
+
+  <main class="deck-content">
+
+    <section class="deck-section" data-section="hero">
+      <header>
+        <p class="eyebrow">Section 01 · Context</p>
+        <h1>Where this began</h1>
+        <p class="lede">{{Lede — one sentence framing the next ten pages.}}</p>
+      </header>
+      <p>{{Body. Why this deck exists, what changed in the world that prompted it, who asked the question.}}</p>
+      <div class="pull-quote">{{Pull quote — a single insight elevated.}}</div>
+      <p>{{Continuation.}}</p>
+    </section>
+
+    <section class="deck-section hidden" data-section="tldr">
+      <header class="section-header">
+        <p class="eyebrow">Section 02 · The short version</p>
+        <h2>If you read nothing else</h2>
+      </header>
+      <article class="card" data-finding="tldr-1">
+        <h3>{{Finding 1 headline}}</h3>
+        <p>{{Body. One paragraph.}}</p>
+      </article>
+      <article class="card card--info" data-finding="tldr-2">
+        <h3>{{Finding 2 headline}}</h3>
+        <p>{{Body. One paragraph.}}</p>
+      </article>
+      <article class="card card--warn" data-finding="tldr-3">
+        <h3>{{Finding 3 headline}}</h3>
+        <p>{{Body. One paragraph.}}</p>
+      </article>
+    </section>
+
+    <section class="deck-section hidden" data-section="method">
+      <header class="section-header">
+        <p class="eyebrow">Section 03 · Method</p>
+        <h2>How we looked at it</h2>
+      </header>
+      <p>{{What data sources we used, what windows, what we excluded and why.}}</p>
+      <div class="kpi-strip">
+        <div><p class="kpi-value">12 mo</p><p class="kpi-meta">Lookback window</p><p class="kpi-label">All metrics</p></div>
+        <div><p class="kpi-value">12,840</p><p class="kpi-meta">Accounts</p><p class="kpi-label">Active in window</p></div>
+        <div><p class="kpi-value">4</p><p class="kpi-meta">Hypotheses tested</p><p class="kpi-label">Pre-registered</p></div>
+      </div>
+    </section>
+
+    <section class="deck-section hidden" data-section="finding-one">
+      <header class="section-header">
+        <p class="eyebrow">Section 04 · Finding 1 of 2</p>
+        <h2>Completion rate splits by customer tenure</h2>
+        <p class="lede">{{One-sentence takeaway. Reader who reads only this leaves with the value.}}</p>
+      </header>
+      <p>{{Analysis.}}</p>
+    </section>
+
+    <section class="deck-section hidden" data-section="finding-two">
+      <header class="section-header">
+        <p class="eyebrow">Section 05 · Finding 2 of 2</p>
+        <h2>Reminder fatigue, but only at the third send</h2>
+        <p class="lede">{{One-sentence takeaway.}}</p>
+      </header>
+      <p>{{Analysis.}}</p>
+    </section>
+
+    <section class="deck-section hidden" data-section="recommendations">
+      <header class="section-header">
+        <p class="eyebrow">Section 06 · What we'd do next</p>
+        <h2>Three moves worth making</h2>
+      </header>
+      <article class="card">
+        <h3>{{Recommendation 1}}</h3>
+        <p>{{Why this. What it'd move.}}</p>
+      </article>
+    </section>
+
+    <section class="deck-section hidden" data-section="open-questions">
+      <header class="section-header">
+        <p class="eyebrow">Section 07 · Open questions</p>
+        <h2>Where we couldn't get clean answers</h2>
+      </header>
+      <p>{{Question 1. Why we couldn't answer it cleanly. What would let us answer it.}}</p>
+      <p>{{Question 2. Why we couldn't answer it cleanly. What would let us answer it.}}</p>
+    </section>
+
+  </main>
+
+</div>
+
+<script>
+  document.querySelectorAll('.nav-row').forEach(row => {
+    row.addEventListener('click', e => {
+      e.preventDefault();
+      const target = row.getAttribute('data-target');
+      document.querySelectorAll('.deck-section').forEach(s => {
+        const isTarget = s.getAttribute('data-section') === target;
+        s.classList.toggle('hidden', !isTarget);
+        s.classList.toggle('is-entering', isTarget);
+      });
+      document.querySelectorAll('.nav-row').forEach(n => n.classList.toggle('active', n === row));
+      window.scrollTo({ top: 0, behavior: 'auto' });
+      document.getElementById('deckNav').classList.remove('open');
+    });
+  });
+</script>
+
+</body>
+</html>

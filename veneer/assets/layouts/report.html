@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{TITLE}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Paper foundation */
+      --paper:       #f6f4ec;
+      --paper-warm:  #ebe6d8;
+      --panel:       #fffdf7;
+
+      /* Ink */
+      --ink:         #1f2624;
+      --ink-soft:    #3b3429;
+      --ink-muted:   #756a58;
+      --ink-faint:   #a89e8a;
+
+      /* Rules */
+      --rule:        #d9ddd6;
+      --hair:        #ececec;
+
+      /* Accents — sage default; swap per artifact */
+      --accent:        #496f59;  --accent-soft:    #e7eee7;
+      --info:          #386b7f;  --info-soft:      #e4eef3;
+      --warn:          #9c7135;  --warn-soft:      #f5ece0;
+      --alert:         #985d57;  --alert-soft:     #f5e8e6;
+      --emphasis:      #665f7c;  --emphasis-soft:  #ece9f1;
+
+      /* Type stacks */
+      --font-display:  'Newsreader', Georgia, 'Times New Roman', serif;
+      --font-body:     'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono:     'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+      /* Scale */
+      --type-display:  clamp(2.4rem, 5vw, 4.4rem);
+      --type-h1:       clamp(1.8rem, 3.2vw, 2.8rem);
+      --type-h2:       clamp(1.3rem, 2.2vw, 1.7rem);
+      --type-h3:       1.15rem;
+      --type-body:     1rem;
+      --type-small:    0.875rem;
+      --type-eyebrow:  0.78rem;
+      --type-caption:  0.75rem;
+
+      /* Spacing */
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 16px;
+      --space-4: 24px;
+      --space-5: 40px;
+      --space-6: 64px;
+      --space-7: 96px;
+
+      /* Layout */
+      --max-content:   920px;
+
+      /* Motion */
+      --duration-fast: 120ms;
+      --duration-base: 180ms;
+      --ease:          cubic-bezier(0.2, 0.0, 0.2, 1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: var(--type-body);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    main {
+      max-width: var(--max-content);
+      margin: 0 auto;
+      padding: var(--space-7) var(--space-5);
+    }
+
+    @media (max-width: 640px) {
+      main { padding: var(--space-5) var(--space-3); }
+    }
+
+    /* Typography */
+    h1, h2, h3, h4 {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-style: normal;
+      color: var(--ink);
+      margin: 0;
+      letter-spacing: -0.02em;
+    }
+    h1 { font-size: var(--type-display); line-height: 0.98; letter-spacing: -0.028em; }
+    h2 { font-size: var(--type-h1);      line-height: 1.05; letter-spacing: -0.022em; }
+    h3 { font-size: var(--type-h2);      line-height: 1.15; }
+    h4 { font-size: var(--type-h3);      line-height: 1.3; }
+
+    p { margin: 0 0 var(--space-3) 0; }
+    p:last-child { margin-bottom: 0; }
+
+    a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    a:hover { text-decoration-thickness: 2px; }
+
+    strong { font-weight: 600; }
+
+    /* Eyebrow */
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: var(--type-eyebrow);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--ink-muted);
+      margin: 0 0 var(--space-3) 0;
+      font-weight: 500;
+    }
+
+    .lede {
+      font-family: var(--font-display);
+      font-size: clamp(1.1rem, 1.8vw, 1.4rem);
+      line-height: 1.4;
+      color: var(--ink-soft);
+      font-weight: 400;
+      max-width: 60ch;
+      margin-top: var(--space-3);
+    }
+
+    /* Hero */
+    .hero {
+      padding-bottom: var(--space-6);
+      border-bottom: 1px solid var(--rule);
+    }
+    .hero-meta {
+      display: flex;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+      margin-top: var(--space-5);
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    .hero-meta > * { display: flex; gap: var(--space-1); }
+    .hero-meta b { color: var(--ink); font-weight: 500; }
+
+    /* Section */
+    .section {
+      padding: var(--space-7) 0;
+      border-top: 1px solid var(--rule);
+    }
+    .section:first-of-type { border-top: 0; padding-top: var(--space-5); }
+    .section-header { margin-bottom: var(--space-5); }
+
+    /* KPI strip */
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: var(--space-4);
+      padding: var(--space-4) 0;
+      border-top: 1px solid var(--hair);
+      border-bottom: 1px solid var(--hair);
+    }
+    .kpi { padding: var(--space-2) 0; }
+    .kpi-value {
+      font-family: var(--font-display);
+      font-size: clamp(1.6rem, 3vw, 2.4rem);
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      margin: 0 0 var(--space-1) 0;
+    }
+    .kpi-meta {
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-muted);
+      margin: 0 0 var(--space-1) 0;
+      letter-spacing: 0.05em;
+    }
+    .kpi-label {
+      font-size: var(--type-small);
+      color: var(--ink-soft);
+      margin: 0;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: var(--space-4) var(--space-5);
+      margin-bottom: var(--space-3);
+    }
+    .card-stack { display: flex; flex-direction: column; gap: var(--space-3); }
+    .card--accent   { border-left: 4px solid var(--accent); }
+    .card--info     { border-left: 4px solid var(--info); }
+    .card--warn     { border-left: 4px solid var(--warn); }
+    .card--alert    { border-left: 4px solid var(--alert); }
+    .card--emphasis { border-left: 4px solid var(--emphasis); }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: var(--space-3);
+      margin-bottom: var(--space-2);
+    }
+    .card-header h3 { margin: 0; }
+
+    /* Pills */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      padding: 2px 8px;
+      border: 1px solid;
+      border-radius: 2px;
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 500;
+    }
+    .pill--accent   { background: var(--accent-soft);   color: var(--accent);   border-color: rgba(73,111,89,0.25); }
+    .pill--info     { background: var(--info-soft);     color: var(--info);     border-color: rgba(56,107,127,0.25); }
+    .pill--warn     { background: var(--warn-soft);     color: var(--warn);     border-color: rgba(156,113,53,0.25); }
+    .pill--alert    { background: var(--alert-soft);    color: var(--alert);    border-color: rgba(152,93,87,0.25); }
+    .pill--emphasis { background: var(--emphasis-soft); color: var(--emphasis); border-color: rgba(102,95,124,0.25); }
+    .pill--neutral  { background: transparent;          color: var(--ink-muted); border-color: var(--rule); }
+
+    /* Bars */
+    .bar-row {
+      display: grid;
+      grid-template-columns: 1fr 2fr 60px;
+      gap: var(--space-3);
+      align-items: center;
+      padding: var(--space-2) 0;
+      border-bottom: 1px solid var(--hair);
+    }
+    .bar-row:last-child { border-bottom: 0; }
+    .bar-label { font-size: var(--type-small); color: var(--ink-soft); }
+    .bar-bg { background: var(--paper-warm); height: 8px; border-radius: 1px; overflow: hidden; }
+    .bar { height: 100%; background: var(--accent); }
+    .bar--info  { background: var(--info); }
+    .bar--warn  { background: var(--warn); }
+    .bar--alert { background: var(--alert); }
+    .bar-value {
+      font-family: var(--font-mono);
+      font-size: var(--type-small);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      color: var(--ink);
+    }
+
+    /* Tables */
+    table.data {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: var(--type-small);
+      margin: var(--space-3) 0;
+    }
+    table.data th, table.data td {
+      padding: var(--space-2) var(--space-3);
+      border-bottom: 1px solid var(--hair);
+      text-align: left;
+    }
+    table.data th {
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-muted);
+      font-weight: 500;
+      border-bottom: 1px solid var(--rule);
+    }
+    table.data td.num {
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      font-family: var(--font-mono);
+    }
+
+    /* Footnotes */
+    .fn {
+      font-family: var(--font-mono);
+      font-size: 0.72em;
+      color: var(--ink-muted);
+      text-decoration: none;
+      margin-left: 2px;
+      vertical-align: super;
+    }
+    .footnote {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: var(--space-2);
+      font-size: var(--type-small);
+      color: var(--ink-muted);
+      padding-top: var(--space-3);
+      border-top: 1px solid var(--hair);
+      margin-top: var(--space-4);
+    }
+    .fn-num {
+      font-family: var(--font-mono);
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    /* Open questions / hypotheses */
+    .open-questions { list-style: none; padding: 0; margin: 0; }
+    .open-questions li {
+      padding: var(--space-3) 0;
+      border-bottom: 1px solid var(--hair);
+    }
+    .open-questions h3 {
+      font-size: var(--type-h3);
+      margin: 0 0 var(--space-2) 0;
+    }
+
+    .hypothesis-ledger ol {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      counter-reset: hyp;
+    }
+    .hypothesis-ledger li {
+      padding: var(--space-3) 0;
+      border-bottom: 1px solid var(--hair);
+      display: grid;
+      grid-template-columns: 32px 1fr auto;
+      gap: var(--space-3);
+      align-items: baseline;
+    }
+    .hypothesis-ledger li::before {
+      counter-increment: hyp;
+      content: 'H' counter(hyp);
+      font-family: var(--font-mono);
+      color: var(--ink-faint);
+      font-size: var(--type-small);
+    }
+
+    /* Footer */
+    footer {
+      padding: var(--space-5) 0 var(--space-7);
+      margin-top: var(--space-7);
+      border-top: 1px solid var(--rule);
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: var(--space-3);
+    }
+  </style>
+</head>
+<body>
+
+<main>
+
+  <header class="hero" data-section="hero">
+    <p class="eyebrow">{{EYEBROW}}</p>
+    <h1>{{HEADLINE}}</h1>
+    <p class="lede">{{LEDE — one sentence stating the takeaway the reader walks away with.}}</p>
+    <div class="hero-meta">
+      <span>For <b>{{AUDIENCE}}</b></span>
+      <span>Window <b>{{WINDOW}}</b></span>
+      <span>Prepared <b>{{DATE}}</b></span>
+    </div>
+  </header>
+
+  <section class="section" data-section="tldr">
+    <header class="section-header">
+      <p class="eyebrow">Section 01 · The short version</p>
+      <h2>If you read nothing else</h2>
+    </header>
+    <div class="card-stack">
+      <article class="card card--accent" data-finding="tldr-1">
+        <header class="card-header">
+          <h3>{{TLDR finding 1}}</h3>
+          <span class="pill pill--accent">Verified</span>
+        </header>
+        <p>{{Body.}}</p>
+      </article>
+      <article class="card card--info" data-finding="tldr-2">
+        <header class="card-header">
+          <h3>{{TLDR finding 2}}</h3>
+          <span class="pill pill--info">Directional</span>
+        </header>
+        <p>{{Body.}}</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" data-section="numbers">
+    <header class="section-header">
+      <p class="eyebrow">Section 02 · The figures</p>
+      <h2>What the data shows</h2>
+    </header>
+    <div class="kpi-strip">
+      <div class="kpi" data-denominator="N=12,840 accounts trailing 12mo" data-baseline="industry" data-baseline-source="Benchmark 2024">
+        <p class="kpi-value">47%</p>
+        <p class="kpi-meta">N=12,840 · 12 mo</p>
+        <p class="kpi-label">Accounts reaching activation</p>
+      </div>
+      <div class="kpi" data-denominator="N=4,210 messages · 90d" data-baseline="prior-period">
+        <p class="kpi-value">31%</p>
+        <p class="kpi-meta">N=4,210 · 90d</p>
+        <p class="kpi-label">Message open rate</p>
+      </div>
+      <div class="kpi" data-baseline="none">
+        <p class="kpi-value">2.4×</p>
+        <p class="kpi-meta">vs. peer median</p>
+        <p class="kpi-label">Feature utilization</p>
+      </div>
+      <div class="kpi">
+        <p class="kpi-value">14%</p>
+        <p class="kpi-meta">YoY</p>
+        <p class="kpi-label">Repeat contact rate<sup class="fn" data-fn="1"><a href="#fn-1">1</a></sup></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" data-section="findings">
+    <header class="section-header">
+      <p class="eyebrow">Section 03 · Findings</p>
+      <h2>Three things worth acting on</h2>
+    </header>
+    <div class="card-stack">
+      <article class="card card--accent" data-finding="completion-tenure" data-hypothesis="H3" data-baseline="peer-cohort">
+        <header class="card-header">
+          <h3>Completion rate splits by customer tenure</h3>
+          <span class="pill pill--accent">Hypothesis supported</span>
+        </header>
+        <p>Body copy describing the finding with denominators and baseline context. The reader leaves knowing what to do.</p>
+        <div class="bar-row" style="margin-top: var(--space-3);">
+          <span class="bar-label">New</span>
+          <div class="bar-bg"><div class="bar bar--alert" style="width: 38%"></div></div>
+          <span class="bar-value">38%</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">Established</span>
+          <div class="bar-bg"><div class="bar bar--warn" style="width: 51%"></div></div>
+          <span class="bar-value">51%</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">Long-tenured</span>
+          <div class="bar-bg"><div class="bar bar--accent" style="width: 64%"></div></div>
+          <span class="bar-value">64%</span>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" data-section="open-questions">
+    <header class="section-header">
+      <p class="eyebrow">Section 06 · Where we couldn't get clean answers</p>
+      <h2>Open questions worth chasing</h2>
+    </header>
+    <ul class="open-questions">
+      <li data-question="customer-tenure-effect">
+        <h3>Is tenure the driver, or something correlated with tenure?</h3>
+        <p>The 12-month window does not give enough cohort separation. A longer lookback or broader cohort comparison would isolate it.</p>
+      </li>
+      <li data-question="seasonal-confound">
+        <h3>How much of the YoY shift is seasonal?</h3>
+        <p>Message cadence changed in Q2 2025. Re-cut by season before treating the YoY delta as a behavior change.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section class="section hypothesis-ledger" data-section="hypotheses">
+    <header class="section-header">
+      <p class="eyebrow">Appendix · Hypotheses tested</p>
+      <h2>What we set out to ask</h2>
+    </header>
+    <ol>
+      <li data-hypothesis="H1" data-result="supported">Activation varies measurably across account segments. <span class="pill pill--accent">Supported</span></li>
+      <li data-hypothesis="H2" data-result="not-supported">Message open rate predicts retention. <span class="pill pill--neutral">Not supported</span></li>
+      <li data-hypothesis="H3" data-result="supported">Completion differs across customer tenure cohorts. <span class="pill pill--accent">Supported</span></li>
+      <li data-hypothesis="H4" data-result="inconclusive">Repeat contact reflects customer behavior, not tracking policy. <span class="pill pill--warn">Inconclusive</span></li>
+    </ol>
+  </section>
+
+  <aside class="footnote" id="fn-1" data-caveat="true">
+    <span class="fn-num">1</span>
+    <span>The 14% YoY shift is most likely explained by a tracking-policy change in late 2024. We do not have clean evidence of a real behavior change. Re-cut against pre/post-policy stratification before drawing an operational conclusion.</span>
+  </aside>
+
+  <footer>
+    <span>Prepared by {{AUTHOR}}</span>
+    <span>Source · {{SOURCE}}</span>
+  </footer>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{TITLE — PR Review}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper:       #f6f4ec;
+      --paper-warm:  #ebe6d8;
+      --panel:       #fffdf7;
+
+      --ink:         #1f2624;
+      --ink-soft:    #3b3429;
+      --ink-muted:   #756a58;
+      --ink-faint:   #a89e8a;
+
+      --rule:        #d9ddd6;
+      --hair:        #ececec;
+
+      /* Code review uses deep blue as primary accent */
+      --accent:        #386b7f;  --accent-soft:    #e4eef3;
+      --info:          #496f59;  --info-soft:      #e7eee7;
+      --warn:          #9c7135;  --warn-soft:      #f5ece0;
+      --alert:         #985d57;  --alert-soft:     #f5e8e6;
+      --emphasis:      #665f7c;  --emphasis-soft:  #ece9f1;
+
+      --diff-add:      #2d5a3d;
+      --diff-add-bg:   #e7f0e8;
+      --diff-rm:       #8b3a36;
+      --diff-rm-bg:    #f5e8e6;
+
+      --font-display:  'Newsreader', Georgia, serif;
+      --font-body:     'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono:     'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+      --type-display:  clamp(2.2rem, 4.5vw, 3.4rem);
+      --type-h1:       clamp(1.5rem, 2.5vw, 2rem);
+      --type-h2:       clamp(1.2rem, 1.8vw, 1.5rem);
+      --type-body:     1rem;
+      --type-small:    0.875rem;
+      --type-eyebrow:  0.78rem;
+      --type-caption:  0.75rem;
+
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 16px;
+      --space-4: 24px;
+      --space-5: 40px;
+      --space-6: 64px;
+      --space-7: 96px;
+
+      --max-content:   1080px;
+
+      --duration-base: 150ms;
+      --ease:          cubic-bezier(0.2, 0.0, 0.2, 1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--paper); color: var(--ink);
+      font-family: var(--font-body);
+      font-size: var(--type-body);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    main {
+      max-width: var(--max-content);
+      margin: 0 auto;
+      padding: var(--space-6) var(--space-5);
+    }
+
+    h1, h2, h3, h4 {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-style: normal;
+      letter-spacing: -0.02em;
+      margin: 0;
+      color: var(--ink);
+    }
+    h1 { font-size: var(--type-display); line-height: 1; letter-spacing: -0.028em; }
+    h2 { font-size: var(--type-h1);      line-height: 1.1; }
+    h3 { font-size: var(--type-h2);      line-height: 1.2; }
+    h4 { font-size: 1.05rem;             line-height: 1.3; }
+
+    p { margin: 0 0 var(--space-3) 0; max-width: 72ch; }
+    p:last-child { margin-bottom: 0; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: var(--type-eyebrow);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--ink-muted);
+      margin: 0 0 var(--space-3) 0;
+      font-weight: 500;
+    }
+
+    /* Verdict block */
+    .verdict {
+      padding: var(--space-5) 0 var(--space-6);
+      border-bottom: 1px solid var(--rule);
+      margin-bottom: var(--space-6);
+    }
+    .verdict-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin-bottom: var(--space-3);
+      flex-wrap: wrap;
+    }
+    .verdict-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border: 1px solid;
+      border-radius: 2px;
+      font-family: var(--font-mono);
+      font-size: var(--type-eyebrow);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-weight: 600;
+    }
+    .verdict-pill--ship     { background: var(--info-soft);  color: var(--info);  border-color: rgba(73,111,89,0.4); }
+    .verdict-pill--hold     { background: var(--warn-soft);  color: var(--warn);  border-color: rgba(156,113,53,0.4); }
+    .verdict-pill--discuss  { background: var(--accent-soft); color: var(--accent); border-color: rgba(56,107,127,0.4); }
+    .verdict-pill--blocker  { background: var(--alert-soft); color: var(--alert); border-color: rgba(152,93,87,0.4); }
+
+    .verdict h1 { margin-bottom: var(--space-3); }
+    .verdict-body { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); margin-top: var(--space-5); }
+    @media (max-width: 720px) { .verdict-body { grid-template-columns: 1fr; } }
+    .verdict-block h4 {
+      font-family: var(--font-mono);
+      font-size: var(--type-eyebrow);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--ink-muted);
+      font-weight: 600;
+      margin: 0 0 var(--space-2) 0;
+    }
+
+    .verdict-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: var(--space-4);
+      margin-top: var(--space-5);
+      padding-top: var(--space-4);
+      border-top: 1px solid var(--hair);
+    }
+    .vstrip-item p:first-child {
+      font-family: var(--font-display);
+      font-size: 1.6rem;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      margin: 0 0 var(--space-1) 0;
+    }
+    .vstrip-item p:last-child {
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 0;
+    }
+
+    /* Intent clusters */
+    .clusters { margin-bottom: var(--space-7); }
+    .cluster {
+      padding: var(--space-5) 0;
+      border-top: 1px solid var(--rule);
+    }
+    .cluster:first-child { border-top: 0; }
+    .cluster-header {
+      display: grid;
+      grid-template-columns: 60px 1fr auto;
+      align-items: baseline;
+      gap: var(--space-3);
+      margin-bottom: var(--space-3);
+    }
+    .cluster-num {
+      font-family: var(--font-mono);
+      color: var(--ink-faint);
+      font-size: var(--type-small);
+      font-weight: 500;
+    }
+    .cluster h3 { font-family: var(--font-display); font-size: 1.4rem; line-height: 1.2; }
+    .cluster-meta {
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-muted);
+      letter-spacing: 0.05em;
+    }
+    .cluster-summary {
+      margin-bottom: var(--space-4);
+      font-size: 1.05rem;
+      line-height: 1.55;
+      color: var(--ink-soft);
+      max-width: 72ch;
+    }
+    .cluster-files {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      margin-bottom: var(--space-4);
+    }
+    .file-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      padding: 2px 8px;
+      border: 1px solid var(--rule);
+      background: var(--panel);
+      border-radius: 2px;
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-soft);
+    }
+    .file-chip-count { color: var(--ink-faint); }
+
+    /* Diff blocks */
+    .diff {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      margin: var(--space-3) 0;
+      display: grid;
+      grid-template-columns: 1fr;
+      overflow: hidden;
+    }
+    @media (min-width: 900px) {
+      .diff.with-annotation { grid-template-columns: 1.8fr 1fr; }
+    }
+    .diff figcaption {
+      padding: var(--space-2) var(--space-3);
+      background: var(--paper-warm);
+      border-bottom: 1px solid var(--rule);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      letter-spacing: 0.05em;
+      grid-column: 1 / -1;
+    }
+    .diff-file { color: var(--ink); font-weight: 500; }
+    .diff-lines { color: var(--ink-muted); }
+    .diff-body {
+      margin: 0;
+      padding: var(--space-3);
+      font-family: var(--font-mono);
+      font-size: var(--type-small);
+      line-height: 1.5;
+      overflow-x: auto;
+    }
+    .diff-body code { display: block; }
+    .ln { display: block; padding: 0 var(--space-2); white-space: pre; border-radius: 1px; }
+    .ln.add { background: var(--diff-add-bg); color: var(--diff-add); }
+    .ln.rm  { background: var(--diff-rm-bg);  color: var(--diff-rm); }
+    .ln.ctx { color: var(--ink-soft); }
+    .diff-annotation {
+      padding: var(--space-3);
+      border-left: 1px solid var(--rule);
+      background: var(--paper);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+    @media (max-width: 899px) {
+      .diff-annotation { border-left: 0; border-top: 1px solid var(--rule); }
+    }
+    .diff-annotation .eyebrow { margin: 0; }
+    .diff-annotation p { margin: 0; font-size: var(--type-small); line-height: 1.5; }
+
+    /* Cross-cutting concerns */
+    .concerns {
+      display: grid;
+      gap: var(--space-5);
+      padding: var(--space-6) 0;
+      border-top: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+    }
+    .concern {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: var(--space-5);
+      padding-bottom: var(--space-4);
+      border-bottom: 1px solid var(--hair);
+    }
+    .concern:last-child { border-bottom: 0; padding-bottom: 0; }
+    @media (max-width: 720px) { .concern { grid-template-columns: 1fr; gap: var(--space-2); } }
+    .concern-label h3 { font-size: 1.2rem; margin-bottom: var(--space-1); }
+    .concern-label .eyebrow { margin: 0; }
+    .concern-body p { font-size: var(--type-small); line-height: 1.55; }
+    .concern-body ul { padding-left: var(--space-4); margin: var(--space-2) 0; }
+    .concern-body li { font-size: var(--type-small); line-height: 1.55; margin-bottom: var(--space-1); }
+
+    /* Pills */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border: 1px solid;
+      border-radius: 2px;
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 500;
+    }
+    .pill--info     { background: var(--info-soft);  color: var(--info);  border-color: rgba(73,111,89,0.25); }
+    .pill--accent   { background: var(--accent-soft); color: var(--accent); border-color: rgba(56,107,127,0.25); }
+    .pill--warn     { background: var(--warn-soft);  color: var(--warn);  border-color: rgba(156,113,53,0.25); }
+    .pill--alert    { background: var(--alert-soft); color: var(--alert); border-color: rgba(152,93,87,0.25); }
+    .pill--emphasis { background: var(--emphasis-soft); color: var(--emphasis); border-color: rgba(102,95,124,0.25); }
+    .pill--neutral  { background: transparent; color: var(--ink-muted); border-color: var(--rule); }
+
+    /* Open questions */
+    .open-questions { padding: var(--space-6) 0; }
+    .question-item {
+      padding: var(--space-3) 0;
+      border-bottom: 1px solid var(--hair);
+    }
+    .question-item h4 { font-size: 1.05rem; margin-bottom: var(--space-1); }
+    .question-loc {
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-faint);
+      letter-spacing: 0.05em;
+    }
+
+    /* Suggested next steps */
+    .next-steps { padding: var(--space-6) 0; border-top: 1px solid var(--rule); }
+    .next-steps ol { padding-left: var(--space-4); margin: var(--space-3) 0 0; }
+    .next-steps li {
+      padding: var(--space-2) 0;
+      line-height: 1.55;
+      border-bottom: 1px solid var(--hair);
+    }
+    .next-steps li:last-child { border-bottom: 0; }
+    .next-steps .step-why {
+      display: block;
+      font-size: var(--type-small);
+      color: var(--ink-muted);
+      margin-top: 2px;
+    }
+
+    /* Methodology appendix */
+    .methodology {
+      padding: var(--space-5) 0;
+      margin-top: var(--space-6);
+      border-top: 1px solid var(--rule);
+      font-size: var(--type-small);
+      color: var(--ink-muted);
+    }
+    .methodology h3 { font-size: 1rem; color: var(--ink); margin-bottom: var(--space-2); }
+    .methodology ul { padding-left: var(--space-4); }
+    .methodology li { line-height: 1.6; }
+
+    a { color: var(--accent); }
+
+    /* Cluster expand/collapse (light interaction) */
+    .cluster-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+
+<main>
+
+  <!-- 1. Verdict and orientation -->
+  <section class="verdict" data-section="verdict">
+    <p class="eyebrow">Code review · {{REPO}} · {{BRANCH}} → {{BASE}}</p>
+    <div class="verdict-header">
+      <h1>{{PR TITLE}}</h1>
+      <span class="verdict-pill verdict-pill--ship">Ship clean</span>
+    </div>
+
+    <div class="verdict-body">
+      <div class="verdict-block">
+        <h4>What this change does</h4>
+        <p>{{Audience-aware paragraph in the present tense — "this change makes auth cookies rotate every hour…" not "the PR adds cookie rotation."}}</p>
+      </div>
+      <div class="verdict-block">
+        <h4>What it was before</h4>
+        <p>{{The diff'ed state, described. Reviewers context-switch in cold; they need this paragraph to land softly into the diff.}}</p>
+      </div>
+    </div>
+
+    <div class="verdict-strip">
+      <div class="vstrip-item"><p>14</p><p>Files changed</p></div>
+      <div class="vstrip-item"><p>+247 −89</p><p>Lines</p></div>
+      <div class="vstrip-item"><p>4</p><p>Intent clusters</p></div>
+      <div class="vstrip-item"><p>0</p><p>Blockers</p></div>
+      <div class="vstrip-item"><p>2</p><p>Open questions</p></div>
+    </div>
+
+    <p style="margin-top: var(--space-5);"><a href="{{PR_URL}}">View on GitHub →</a></p>
+  </section>
+
+  <!-- 2. Intent clusters -->
+  <section class="clusters" data-section="intent-clusters">
+    <p class="eyebrow">Section · Intent clusters</p>
+    <h2 style="margin-bottom: var(--space-5);">What this change accomplishes, by intent</h2>
+
+    <article class="cluster" data-cluster="cookie-rotation">
+      <div class="cluster-header">
+        <span class="cluster-num">01</span>
+        <h3>Cookie rotation in auth middleware</h3>
+        <span class="cluster-meta">5 files · 89 lines</span>
+      </div>
+      <p class="cluster-summary">{{What this cluster accomplishes and why. The "story" the reader needs to follow these hunks.}}</p>
+      <div class="cluster-files">
+        <span class="file-chip">src/auth/cookie.ts <span class="file-chip-count">4 hunks</span></span>
+        <span class="file-chip">src/auth/session.ts <span class="file-chip-count">2 hunks</span></span>
+        <span class="file-chip">tests/auth/cookie.test.ts <span class="file-chip-count">8 hunks</span></span>
+      </div>
+
+      <figure class="diff with-annotation" data-file="src/auth/cookie.ts">
+        <figcaption>
+          <span class="diff-file">src/auth/cookie.ts</span>
+          <span class="diff-lines">+12 −4</span>
+        </figcaption>
+        <pre class="diff-body"><code><span class="ln ctx">  export function createCookie(payload) {</span>
+<span class="ln rm">-   const expires = now + WEEK</span>
+<span class="ln add">+   const expires = now + DAY</span>
+<span class="ln add">+   const rotateAfter = now + HOUR</span>
+<span class="ln ctx">    return signCookie(payload, expires)</span>
+<span class="ln ctx">  }</span></code></pre>
+        <aside class="diff-annotation" data-annotation="info">
+          <p class="eyebrow">Load-bearing</p>
+          <p>Shortens the cookie lifetime from 7d to 1d with a 1h rotation. Everything else in this cluster either supports rotation or cleans up after it.</p>
+        </aside>
+      </figure>
+    </article>
+
+    <article class="cluster" data-cluster="cache-layer">
+      <div class="cluster-header">
+        <span class="cluster-num">02</span>
+        <h3>Cache layer for account lookups</h3>
+        <span class="cluster-meta">4 files · 96 lines</span>
+      </div>
+      <p class="cluster-summary">{{Cluster summary.}}</p>
+      <div class="cluster-files">
+        <span class="file-chip">src/accounts/cache.ts <span class="file-chip-count">new</span></span>
+        <span class="file-chip">src/accounts/lookup.ts <span class="file-chip-count">3 hunks</span></span>
+      </div>
+    </article>
+
+    <article class="cluster" data-cluster="dead-code">
+      <div class="cluster-header">
+        <span class="cluster-num">03</span>
+        <h3>Remove dead scheduled-task handler</h3>
+        <span class="cluster-meta">3 files · 62 lines</span>
+      </div>
+      <p class="cluster-summary">{{Cluster summary.}}</p>
+    </article>
+  </section>
+
+  <!-- 3. Cross-cutting concerns -->
+  <section class="concerns" data-section="cross-cutting">
+    <article class="concern" data-concern="security">
+      <div class="concern-label">
+        <p class="eyebrow">Concern</p>
+        <h3>Security</h3>
+        <span class="pill pill--info">Reviewed</span>
+      </div>
+      <div class="concern-body">
+        <ul>
+          <li><b>Auth surface:</b> cookie lifetime tightened from 7d → 1d with 1h rotation. Sessions remain server-validated; no client-side token changes.</li>
+          <li><b>Input handling:</b> no new public endpoints introduced.</li>
+          <li><b>Recommendation:</b> verify the rotation grace window against any long-running background jobs that authenticate as the user.</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="concern" data-concern="architecture">
+      <div class="concern-label">
+        <p class="eyebrow">Concern</p>
+        <h3>Architecture</h3>
+        <span class="pill pill--info">Reviewed</span>
+      </div>
+      <div class="concern-body">
+        <ul>
+          <li><b>New boundary:</b> a `ClinicCache` module sits between the lookup service and storage. Owns its own invalidation rules.</li>
+          <li><b>Coupling:</b> the lookup service now depends on the cache module's interface. Backwards-compatible — no public signature changes.</li>
+          <li><b>Radiates:</b> downstream consumers of `lookupClinic()` see no behavior change. Internal latency profile shifts (10x faster on cache hit).</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="concern" data-concern="primitives">
+      <div class="concern-label">
+        <p class="eyebrow">Concern</p>
+        <h3>Primitives</h3>
+        <span class="pill pill--warn">Worth attention</span>
+      </div>
+      <div class="concern-body">
+        <ul>
+          <li><b>New primitive:</b> `RotatingCookie` type. Wraps the existing `Cookie` type with a `rotateAfter` field.</li>
+          <li><b>Consistency:</b> naming matches existing `Expires`/`Refresh` patterns elsewhere in the auth module.</li>
+          <li><b>Question:</b> is `RotatingCookie` the right level of abstraction, or should rotation be a property of the existing `Cookie` type?</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="concern" data-concern="agent-native">
+      <div class="concern-label">
+        <p class="eyebrow">Concern</p>
+        <h3>Agent-native parity</h3>
+        <span class="pill pill--info">N/A</span>
+      </div>
+      <div class="concern-body">
+        <ul>
+          <li>This change is internal infrastructure. No user-facing capability added or removed.</li>
+          <li>Any agent that authenticates via the same cookie path benefits identically — no API change.</li>
+          <li>No agent tools added or modified.</li>
+        </ul>
+      </div>
+    </article>
+  </section>
+
+  <!-- 4. Open questions -->
+  <section class="open-questions" data-section="open-questions">
+    <p class="eyebrow">Section · Open questions</p>
+    <h2 style="margin-bottom: var(--space-4);">Where the author should respond</h2>
+
+    <div class="question-item" data-question="rotation-grace-window">
+      <h4>What's the rotation grace window for in-flight requests?</h4>
+      <p class="question-loc">src/auth/cookie.ts · cluster 01</p>
+      <p>If a request is mid-flight when rotation fires, does the old cookie remain valid until the response completes? Otherwise long-running streams would 401 mid-response.</p>
+    </div>
+
+    <div class="question-item" data-question="cache-invalidation">
+      <h4>Cache invalidation on account-data updates?</h4>
+      <p class="question-loc">src/accounts/cache.ts · cluster 02</p>
+      <p>The cluster does not show a write-side invalidation. Are account mutations rare enough to lean on TTL, or do we need explicit invalidation?</p>
+    </div>
+  </section>
+
+  <!-- 5. Suggested next steps -->
+  <section class="next-steps" data-section="next-steps">
+    <p class="eyebrow">Section · Suggested next steps</p>
+    <h2 style="margin-bottom: var(--space-4);">If not shipping clean, do this next</h2>
+    <ol>
+      <li>
+        Add the rotation grace window guard before merge.
+        <span class="step-why">Blocks the cookie-rotation cluster from regressing long-running authenticated streams. Smallest change that closes the highest-severity open question.</span>
+      </li>
+      <li>
+        Confirm account-cache write-side invalidation, or document the TTL-only decision.
+        <span class="step-why">Either is acceptable; the review just needs the intent recorded so a future reader does not treat it as an oversight.</span>
+      </li>
+      <li>
+        Re-request review on the two clusters above once addressed.
+        <span class="step-why">Scoped re-review, not a full pass — only the changed hunks need a second look.</span>
+      </li>
+    </ol>
+  </section>
+
+  <!-- 6. Methodology -->
+  <section class="methodology" data-section="methodology">
+    <h3>Methodology</h3>
+    <ul>
+      <li>Reviewed by: security, architecture, primitives, agent-native personas.</li>
+      <li>Confidence threshold: medium and above surface as findings; low-confidence flagged as questions.</li>
+      <li>Out of scope: deployment / rollout sequencing (deferred to platform review).</li>
+    </ul>
+  </section>
+
+</main>
+
+</body>
+</html>

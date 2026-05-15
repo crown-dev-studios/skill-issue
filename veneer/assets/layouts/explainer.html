@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{TITLE}}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper:       #f6f4ec;
+      --paper-warm:  #ebe6d8;
+      --panel:       #fffdf7;
+
+      --ink:         #1f2624;
+      --ink-soft:    #3b3429;
+      --ink-muted:   #756a58;
+      --ink-faint:   #a89e8a;
+
+      --rule:        #d9ddd6;
+      --hair:        #ececec;
+
+      /* Research / explainer uses dusty violet as primary accent
+         (design-system § Per-artifact accent palettes); swap per artifact */
+      --accent:        #665f7c;  --accent-soft:    #ece9f1;
+      --info:          #386b7f;  --info-soft:      #e4eef3;
+      --warn:          #9c7135;  --warn-soft:      #f5ece0;
+      --alert:         #985d57;  --alert-soft:     #f5e8e6;
+      --emphasis:      #496f59;  --emphasis-soft:  #e7eee7;
+
+      --font-display:  'Newsreader', Georgia, serif;
+      --font-body:     'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono:     'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+      --type-display:  clamp(2.4rem, 5vw, 4.4rem);
+      --type-h1:       clamp(1.8rem, 3.2vw, 2.8rem);
+      --type-h2:       clamp(1.3rem, 2.2vw, 1.7rem);
+      --type-body:     1rem;
+      --type-small:    0.875rem;
+      --type-eyebrow:  0.78rem;
+      --type-caption:  0.75rem;
+
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 16px;
+      --space-4: 24px;
+      --space-5: 40px;
+      --space-6: 64px;
+      --space-7: 96px;
+
+      --sidebar-w:     320px;
+      --max-content:   880px;
+
+      --duration-base: 150ms;
+      --ease:          cubic-bezier(0.2, 0.0, 0.2, 1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: var(--type-body);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+      min-height: 100vh;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      background: var(--paper-warm);
+      padding: var(--space-5) var(--space-4);
+      border-right: 1px solid var(--rule);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-5);
+    }
+    .masthead { display: grid; gap: var(--space-2); }
+    .masthead .eyebrow { margin: 0; }
+    .masthead-title {
+      font-family: var(--font-display);
+      font-size: 1.4rem;
+      line-height: 1.15;
+      letter-spacing: -0.015em;
+      margin: 0;
+      font-weight: 500;
+    }
+    .masthead-meta {
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-muted);
+      margin: 0;
+      letter-spacing: 0.05em;
+    }
+
+    .nav-list { display: flex; flex-direction: column; }
+    .nav-row {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: var(--space-2);
+      padding: var(--space-3) 0;
+      border-bottom: 1px solid var(--rule);
+      text-decoration: none;
+      color: var(--ink);
+      transition: opacity var(--duration-base) var(--ease);
+    }
+    .nav-row:hover { opacity: 0.7; }
+    .nav-row.active .nav-title { color: var(--accent); }
+    .nav-row.active .nav-num { color: var(--accent); }
+    .nav-num {
+      font-family: var(--font-mono);
+      color: var(--ink-faint);
+      font-size: 0.85rem;
+      padding-top: 4px;
+      font-weight: 500;
+    }
+    .nav-text { display: flex; flex-direction: column; gap: 2px; }
+    .nav-title {
+      font-family: var(--font-display);
+      font-size: 1.02rem;
+      line-height: 1.25;
+      font-weight: 500;
+    }
+    .nav-tag {
+      font-family: var(--font-display);
+      font-style: italic;
+      color: var(--ink-muted);
+      font-size: 0.88rem;
+      line-height: 1.3;
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding-top: var(--space-4);
+      border-top: 1px solid var(--rule);
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      color: var(--ink-muted);
+      letter-spacing: 0.05em;
+    }
+
+    /* Content panel */
+    .content {
+      padding: var(--space-7) var(--space-6);
+      max-width: var(--max-content);
+    }
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { position: relative; height: auto; }
+      .content { padding: var(--space-5) var(--space-3); }
+    }
+
+    /* fadeIn runs ONLY on the section a nav click reveals (.is-entering, added
+       in JS) — never on the base .section selector. The section visible at
+       initial load carries no .is-entering, so it does not animate.
+       design-system forbids fade-in-on-load chrome. */
+    .section.hidden { display: none; }
+    .section.is-entering { animation: fadeIn 150ms ease-out; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    /* Typography */
+    h1, h2, h3, h4 {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-style: normal;
+      color: var(--ink);
+      margin: 0;
+      letter-spacing: -0.02em;
+    }
+    h1 { font-size: var(--type-display); line-height: 0.98; letter-spacing: -0.028em; }
+    h2 { font-size: var(--type-h1);      line-height: 1.05; letter-spacing: -0.022em; }
+    h3 { font-size: var(--type-h2);      line-height: 1.2; }
+
+    p { margin: 0 0 var(--space-3) 0; max-width: 64ch; }
+    p:last-child { margin-bottom: 0; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: var(--type-eyebrow);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--ink-muted);
+      margin: 0 0 var(--space-3) 0;
+      font-weight: 500;
+    }
+    .lede {
+      font-family: var(--font-display);
+      font-size: clamp(1.1rem, 1.8vw, 1.4rem);
+      line-height: 1.4;
+      color: var(--ink-soft);
+      font-weight: 400;
+      max-width: 60ch;
+      margin-top: var(--space-3);
+    }
+
+    .section-header {
+      padding-bottom: var(--space-4);
+      margin-bottom: var(--space-5);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    /* Shared elements available across sections */
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-left: 4px solid var(--accent);
+      border-radius: 2px;
+      padding: var(--space-4) var(--space-5);
+      margin-bottom: var(--space-3);
+    }
+    .card--info     { border-left-color: var(--info); }
+    .card--warn     { border-left-color: var(--warn); }
+    .card--alert    { border-left-color: var(--alert); }
+    .card--emphasis { border-left-color: var(--emphasis); }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      padding: 2px 8px;
+      border: 1px solid;
+      border-radius: 2px;
+      font-family: var(--font-mono);
+      font-size: var(--type-caption);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 500;
+    }
+    .pill--accent { background: var(--accent-soft); color: var(--accent); border-color: rgba(102,95,124,0.25); }
+    .pill--warn   { background: var(--warn-soft);   color: var(--warn);   border-color: rgba(156,113,53,0.25); }
+
+    /* Print */
+    @media print {
+      .sidebar { display: none; }
+      .section.hidden { display: block !important; }
+      .layout { display: block; }
+      .content { padding: 0; max-width: 100%; }
+      .section { page-break-after: always; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+
+  <aside class="sidebar" data-section="nav">
+    <div class="masthead">
+      <p class="eyebrow">{{VOLUME}}</p>
+      <h1 class="masthead-title">{{TITLE}}</h1>
+      <p class="masthead-meta">For {{AUDIENCE}} · {{DATE}}</p>
+    </div>
+
+    <nav class="nav-list">
+      <a href="#" class="nav-row active" data-target="hero">
+        <span class="nav-num">01</span>
+        <span class="nav-text">
+          <span class="nav-title">Where this began</span>
+          <span class="nav-tag">Context for the next 30 minutes.</span>
+        </span>
+      </a>
+      <a href="#" class="nav-row" data-target="tldr">
+        <span class="nav-num">02</span>
+        <span class="nav-text">
+          <span class="nav-title">The short version</span>
+          <span class="nav-tag">If you read nothing else, read this.</span>
+        </span>
+      </a>
+      <a href="#" class="nav-row" data-target="method">
+        <span class="nav-num">03</span>
+        <span class="nav-text">
+          <span class="nav-title">How we looked at it</span>
+          <span class="nav-tag">The data, the queries, the limits.</span>
+        </span>
+      </a>
+      <a href="#" class="nav-row" data-target="findings">
+        <span class="nav-num">04</span>
+        <span class="nav-text">
+          <span class="nav-title">What we found</span>
+          <span class="nav-tag">Three things worth acting on.</span>
+        </span>
+      </a>
+      <a href="#" class="nav-row" data-target="open-questions">
+        <span class="nav-num">05</span>
+        <span class="nav-text">
+          <span class="nav-title">What's still open</span>
+          <span class="nav-tag">Where we couldn't get clean answers.</span>
+        </span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      Prepared by {{AUTHOR}}<br>
+      {{SOURCE}}
+    </div>
+  </aside>
+
+  <main class="content">
+
+    <section class="section" data-section="hero">
+      <header>
+        <p class="eyebrow">Section 01 · Context</p>
+        <h2>Where this began</h2>
+        <p class="lede">{{LEDE — one sentence framing the artifact for the reader.}}</p>
+      </header>
+      <p>{{Body for the context section.}}</p>
+    </section>
+
+    <section class="section hidden" data-section="tldr">
+      <header class="section-header">
+        <p class="eyebrow">Section 02 · The short version</p>
+        <h2>If you read nothing else</h2>
+      </header>
+      <article class="card">
+        <h3>{{TLDR 1}}</h3>
+        <p>{{Body.}}</p>
+      </article>
+      <article class="card card--info">
+        <h3>{{TLDR 2}}</h3>
+        <p>{{Body.}}</p>
+      </article>
+    </section>
+
+    <section class="section hidden" data-section="method">
+      <header class="section-header">
+        <p class="eyebrow">Section 03 · Method</p>
+        <h2>How we looked at it</h2>
+      </header>
+      <p>{{Data sources, windows, queries, limits.}}</p>
+    </section>
+
+    <section class="section hidden" data-section="findings">
+      <header class="section-header">
+        <p class="eyebrow">Section 04 · Findings</p>
+        <h2>What we found</h2>
+      </header>
+      <article class="card" data-finding="f1">
+        <h3>{{Finding headline}}</h3>
+        <p>{{Body.}}</p>
+      </article>
+    </section>
+
+    <section class="section hidden" data-section="open-questions">
+      <header class="section-header">
+        <p class="eyebrow">Section 05 · Open questions</p>
+        <h2>What's still open</h2>
+      </header>
+      <p>{{Question 1. Why it matters.}}</p>
+      <p>{{Question 2. Why it matters.}}</p>
+    </section>
+
+  </main>
+
+</div>
+
+<script>
+  document.querySelectorAll('.nav-row').forEach(row => {
+    row.addEventListener('click', e => {
+      e.preventDefault();
+      const target = row.getAttribute('data-target');
+      document.querySelectorAll('.section').forEach(s => {
+        if (s.getAttribute('data-section') === 'nav') return;
+        const isTarget = s.getAttribute('data-section') === target;
+        s.classList.toggle('hidden', !isTarget);
+        s.classList.toggle('is-entering', isTarget);
+      });
+      document.querySelectorAll('.nav-row').forEach(n => n.classList.toggle('active', n === row));
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    });
+  });
+</script>
+
+</body>
+</html>
