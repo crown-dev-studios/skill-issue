@@ -34,9 +34,10 @@ If the target is ambiguous, ask.
 1. **Resolve mode and target.** Check `ARGUMENTS` for `mode:apply` or `mode:review` first, then resolve the target from the remaining arguments. If no mode token is present, default to `apply` unless the user explicitly requested findings-only behavior.
 2. **Run tests.** Verify the existing test suite passes before making any changes. This is the behavioral baseline. In `review` mode, run relevant tests when they materially improve confidence.
 3. **Read the changes in full.** Understand what changed and why before simplifying. Note whether the changes are part of an incremental series of diffs — scaffolding for a known next step is not the same as speculative design.
-4. **Apply simplicity lenses.** Walk through each lens in a single pass. In `apply` mode, make changes directly. In `review` mode, produce findings only.
-5. **Run tests again in `apply` mode.** If any test fails after simplification, investigate: did the simplification change behavior (revert it), or did the test depend on an implementation detail (flag it as a finding)?
-6. **Present the results.** In `apply` mode, summarize what changed, why it became simpler, and any residual findings. In `review` mode, present findings only. Group by lens when useful.
+4. **Name the intent of the diff.** Understand what behavior, boundary, responsibility, or architectural direction the change is moving toward, including through deletions. Read enough surrounding code to see how the changed code fits into the application. Simplify in a way that preserves that intent and architecture, using whatever mechanism best reduces complexity without changing the purpose of the change.
+5. **Apply simplicity lenses.** Walk through each lens in a single pass. In `apply` mode, make changes directly. In `review` mode, produce findings only.
+6. **Run tests again in `apply` mode.** If any test fails after simplification, investigate: did the simplification change behavior (revert it), or did the test depend on an implementation detail (flag it as a finding)?
+7. **Present the results.** In `apply` mode, summarize what changed, why it became simpler, and any residual findings. In `review` mode, present findings only. Group by lens when useful.
 
 ## Simplicity Lenses
 
