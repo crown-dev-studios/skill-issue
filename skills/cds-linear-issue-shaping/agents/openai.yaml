@@ -1,0 +1,4 @@
+# Codex ignores disable-model-invocation, so gate implicit invocation here.
+# This skill creates Linear issues, so it runs only on explicit `$cds-linear-issue-shaping`.
+policy:
+  allow_implicit_invocation: false

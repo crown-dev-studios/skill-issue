@@ -8,18 +8,5 @@
   },
   "homepage": "https://github.com/crown-dev-studios/skill-issue",
   "repository": "https://github.com/crown-dev-studios/skill-issue",
-  "license": "MIT",
-  "skills": [
-    "./architecture-review",
-    "./brainstorming",
-    "./code-simplicity",
-    "./linear-issue-shaping",
-    "./plan-compliance",
-    "./plan-review",
-    "./planning",
-    "./review-council",
-    "./review-triage",
-    "./second-opinion",
-    "./testing-philosophy"
-  ]
+  "license": "MIT"
 }

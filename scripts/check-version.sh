@@ -60,6 +60,21 @@ else
   exit 1
 fi
 
+check_json_version() {
+  local file="$1" label="$2" expr="$3"
+  [[ -f "$file" ]] || return 0
+  local v
+  v=$(node -e "const o=require(process.argv[1]); console.log($expr)" "$file")
+  if [[ "$v" == "$EXPECTED_VERSION" ]]; then
+    echo -e "${GREEN}✓${NC} $label: $v"
+  else
+    echo -e "${RED}✗${NC} $label: $v (expected $EXPECTED_VERSION)"
+    exit 1
+  fi
+}
+check_json_version "$ROOT_DIR/.claude-plugin/plugin.json" ".claude-plugin/plugin.json" "o.version"
+check_json_version "$ROOT_DIR/.claude-plugin/marketplace.json" ".claude-plugin/marketplace.json" "o.metadata.version"
+
 echo ""
 echo "Git tag:"
 TAG="v$EXPECTED_VERSION"

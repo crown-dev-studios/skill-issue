@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const COMMANDS = {
-  "second-opinion": resolve(rootDir, "second-opinion", "dist", "index.js"),
-  "review-council": resolve(rootDir, "review-council", "dist", "cli.js"),
+  "second-opinion": resolve(rootDir, "skills", "cds-second-opinion", "dist", "index.js"),
+  "review-council": resolve(rootDir, "skills", "cds-review-council", "dist", "cli.js"),
 };
 
 function readPackageVersion() {

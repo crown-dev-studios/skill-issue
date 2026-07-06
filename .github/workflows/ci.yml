@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm run test
+      - run: bash scripts/validate.sh
+      - run: node bin/skill-issue.js --version
+      - name: Native plugin validation (best-effort)
+        run: |
+          if command -v claude >/dev/null 2>&1; then
+            claude plugin validate .claude-plugin/marketplace.json
+            claude plugin validate . --strict
+          else
+            echo "claude CLI not available on runner; skipping native plugin validate"
+          fi
