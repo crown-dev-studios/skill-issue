@@ -10,46 +10,59 @@ Add the marketplace and install the plugin:
 
 ```
 /plugin marketplace add crown-dev-studios/skill-issue
-/plugin install skill-issue@skill-issue
+/plugin install skill-issue@crown-dev-studios
 ```
 
-All 11 skills are declared through `.claude-plugin/plugin.json` and activate immediately.
+All skills are auto-discovered from `skills/` and activate immediately. Each is namespaced as `skill-issue:cds-<name>` (e.g. `skill-issue:cds-planning`).
 
-### Codex, Cursor, and other `~/.agents/skills`-aware harnesses
+### Codex, Cursor, Gemini, and other agents
 
-Run the install script — it copies each skill into `~/.agents/skills/skill-issue/`, stripping git metadata, tests, and build sources:
+Use the open agent-skills installer (recommended — it detects your installed agents and copies each skill into the right directory):
+
+```bash
+npx skills add crown-dev-studios/skill-issue
+```
+
+Or use the registry-independent fallback script, which copies each skill into `~/.agents/skills/cds-<name>/`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/crown-dev-studios/skill-issue/main/scripts/install.sh | bash
-```
-
-Or from a local checkout:
-
-```bash
+# or, from a local checkout:
 ./scripts/install.sh
 ```
 
-Override the destination with `SKILL_ISSUE_DEST=/some/other/path ./scripts/install.sh`.
+Override the destination with `SKILL_ISSUE_DEST=/some/other/path ./scripts/install.sh`. On these hosts skills are invoked as `cds-<name>` (Codex uses `$cds-<name>`).
 
 ### npm (CLIs only)
 
-The repo also ships as one npm package with multiple commands:
+`second-opinion` and `review-council` are companion CLIs published in the same package:
 
 ```bash
 npx @crown-dev-studios/skill-issue second-opinion --help
 npx @crown-dev-studios/skill-issue review-council --help
 ```
 
-If you install it globally, you also get direct command names:
+Install globally for a direct command name:
 
 ```bash
 npm install -g @crown-dev-studios/skill-issue
 skill-issue --help
-second-opinion --help
-review-council --help
 ```
 
-`skill-issue` is the canonical release unit. `second-opinion` and `review-council` are published together from the same root package so their versions stay in sync.
+`skill-issue` is the canonical release unit; the CLIs ship from the same root package so their versions stay in sync.
+
+## Upgrade
+
+- **Claude Code** — enable per-marketplace auto-update once, or update manually (refresh the catalogue first, then the plugin):
+  ```
+  /plugin marketplace update crown-dev-studios
+  /plugin update skill-issue
+  ```
+- **npx skills** — re-run the add command; it is idempotent and tracks the default branch (there is no version pinning on this path):
+  ```bash
+  npx skills add crown-dev-studios/skill-issue -y
+  ```
+- **Pinned / reproducible** — every release is tagged `vX.Y.Z`. Pin the marketplace in Claude Code with `crown-dev-studios/skill-issue@vX.Y.Z`, or check out that tag for the install script.
 
 ## What's in here
 
@@ -57,15 +70,19 @@ These are the first-party skills we use to keep our engineering standards high a
 
 | Skill | What it does |
 |---|---|
-| [architecture-review](architecture-review/) | Reviews plans or implementations for model integrity, service boundaries, and canonical architecture direction using SOLID principles as a lens. |
-| [brainstorming](brainstorming/) | Clarifies what should be built before planning begins. Resolves ambiguity in the problem, outcome, or direction through structured interview and option exploration. |
-| [plan-review](plan-review/) | Challenges and strengthens plans or brainstorms before implementation. Reviews for scope, product framing, sequencing, complexity, testing, operability, error handling, and threat model. |
-| [planning](planning/) | Creates a plan of record that serves as both spec and execution plan. Covers current state, constraints, invariants, model and API boundaries, architecture diagrams, phased execution, and proof strategy. |
-| [testing-philosophy](testing-philosophy/) | Enforces our testing principles: what to test, how to structure tests, and when to push back on coverage theater. |
-| [second-opinion](second-opinion/) | Asks a different AI agent for a second take on the current thread. Routes to Claude from Codex and Codex from Claude. |
-| [linear-issue-shaping](linear-issue-shaping/) | Converts plans of record into Linear issues with dependencies, milestones, acceptance criteria, and sequencing. |
-| [review-council](review-council/) | Runs parallel code reviews, then synthesizes and ranks the feedback to surface what actually matters. |
-| [review-triage](review-triage/) | Classifies and routes review feedback before implementation. Validates findings, assigns severity (P1/P2/P3), and routes to fix now, follow-up ticket, follow-up plan, or dismiss. |
+| [cds-brainstorming](skills/cds-brainstorming/) | Clarifies what should be built before planning begins. Resolves ambiguity in the problem, outcome, or direction through structured interview and option exploration. |
+| [cds-planning](skills/cds-planning/) | Creates a plan of record that serves as both spec and execution plan. Covers current state, constraints, invariants, model and API boundaries, architecture diagrams, phased execution, and proof strategy. |
+| [cds-plan-review](skills/cds-plan-review/) | Challenges and strengthens plans or brainstorms before implementation. Reviews for scope, product framing, sequencing, complexity, testing, operability, error handling, and threat model. |
+| [cds-architecture-review](skills/cds-architecture-review/) | Reviews plans or implementations for model integrity, service boundaries, and canonical architecture direction using SOLID principles as a lens. |
+| [cds-plan-compliance](skills/cds-plan-compliance/) | Checks whether an implementation matches its plan of record. Flags deviations, missing phases, unimplemented acceptance criteria, and scope drift. |
+| [cds-linear-issue-shaping](skills/cds-linear-issue-shaping/) | Converts plans of record into Linear issues with dependencies, milestones, acceptance criteria, and sequencing. |
+| [cds-review-council](skills/cds-review-council/) | Runs parallel Claude + Codex code reviews, then synthesizes and ranks the feedback to surface what actually matters. |
+| [cds-review-triage](skills/cds-review-triage/) | Classifies and routes review feedback before implementation. Validates findings, assigns severity (P1/P2/P3), and routes to fix now, follow-up ticket, follow-up plan, or dismiss. |
+| [cds-code-simplicity](skills/cds-code-simplicity/) | Directly simplifies recent code changes — removes unnecessary complexity, defensive patterns, over-abstraction, and excess state. |
+| [cds-testing-philosophy](skills/cds-testing-philosophy/) | Enforces our testing principles: what to test, how to structure tests, and when to push back on coverage theater. |
+| [cds-second-opinion](skills/cds-second-opinion/) | Asks a different AI agent for a second take on the current thread. Routes to Claude from Codex and Codex from Claude. |
+| [cds-agent-standup](skills/cds-agent-standup/) | Reviews past coding-agent sessions across tools and produces a morning-standup report: what shipped, what's left, and why. |
+| [cds-veneer](skills/cds-veneer/) | Builds polished single-file HTML artifacts (reports, decks, code reviews, audits) from markdown or analysis using an editorial design system. |
 
 ## Development
 

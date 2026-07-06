@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 VERSION_FILE="$ROOT_DIR/VERSION"
 PACKAGE_JSON="$ROOT_DIR/package.json"
+PLUGIN_JSON="$ROOT_DIR/.claude-plugin/plugin.json"
+MARKETPLACE_JSON="$ROOT_DIR/.claude-plugin/marketplace.json"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -81,6 +83,20 @@ update_package_json_version() {
   echo -e "${GREEN}✓${NC} Updated package.json version"
 }
 
+update_plugin_json_version() {
+  local version="$1"
+  [[ -f "$PLUGIN_JSON" ]] || return 0
+  sed_inplace "$PLUGIN_JSON" 's/"version": "[^"]*"/"version": "'"$version"'"/'
+  echo -e "${GREEN}✓${NC} Updated .claude-plugin/plugin.json version"
+}
+
+update_marketplace_json_version() {
+  local version="$1"
+  [[ -f "$MARKETPLACE_JSON" ]] || return 0
+  sed_inplace "$MARKETPLACE_JSON" 's/"version": "[^"]*"/"version": "'"$version"'"/'
+  echo -e "${GREEN}✓${NC} Updated .claude-plugin/marketplace.json version"
+}
+
 update_lockfile_only() {
   echo ""
   echo -e "${YELLOW}Refreshing pnpm lockfile (lockfile-only)...${NC}"
@@ -135,6 +151,8 @@ main() {
 
   update_version_file "$NEW_VERSION"
   update_package_json_version "$NEW_VERSION"
+  update_plugin_json_version "$NEW_VERSION"
+  update_marketplace_json_version "$NEW_VERSION"
   update_lockfile_only
 
   echo ""
@@ -148,7 +166,7 @@ main() {
 
     echo ""
     echo -e "${YELLOW}Creating git commit and tag...${NC}"
-    git -C "$ROOT_DIR" add VERSION package.json pnpm-lock.yaml
+    git -C "$ROOT_DIR" add VERSION package.json pnpm-lock.yaml .claude-plugin/plugin.json .claude-plugin/marketplace.json
     git -C "$ROOT_DIR" commit -m "chore: bump version to $NEW_VERSION"
     git -C "$ROOT_DIR" tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
     echo -e "${GREEN}✓${NC} Created commit and tag v$NEW_VERSION"

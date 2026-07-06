@@ -1,0 +1,4 @@
+# Codex ignores disable-model-invocation, so gate implicit invocation here.
+# This side-effecting orchestration skill runs only on explicit `$cds-review-council`.
+policy:
+  allow_implicit_invocation: false
