@@ -1,0 +1,4 @@
+# Codex ignores disable-model-invocation, so gate implicit invocation here.
+# This is a user-invoked authoring skill, so it runs only on explicit `$cds-create-goal`.
+policy:
+  allow_implicit_invocation: false
