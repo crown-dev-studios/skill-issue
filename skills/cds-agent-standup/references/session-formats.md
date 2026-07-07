@@ -1,8 +1,8 @@
 # Session Storage Formats
 
-How each agent persists sessions on disk, the fields `discover_sessions.py` and
-`extract_session.py` rely on, and how to add a new agent. Read this when discovery misses
-sessions, a project groups oddly, or you're extending coverage.
+How each agent persists sessions on disk, the fields you read when discovering and deep-reading
+sessions, and how to add a new agent. Read this when discovery misses sessions, a project groups
+oddly, or you're extending coverage.
 
 All paths are macOS/Linux under `$HOME`. Timestamps are ISO-8601 UTC (`...Z`) unless noted.
 
@@ -54,19 +54,16 @@ All paths are macOS/Linux under `$HOME`. Timestamps are ISO-8601 UTC (`...Z`) un
     string - parse it). Assistant `content` may include `tool_use` blocks.
 
 ## How project grouping works
-`discover_sessions.py` runs `git -C <cwd> rev-parse --git-common-dir` and groups by the resolved
-common `.git` dir, so **all worktrees of one repo group together** while staying distinct rows
-(each keeps its own branch/path). When the dir is gone or not a git repo, it falls back to the
-path itself. Lossy-decoded Cursor paths can occasionally land a session in a near-duplicate group
-(e.g. `delta` vs `vet-studio-delta`) - the analysis step should merge those by recognizing them.
+Run `git -C <cwd> rev-parse --git-common-dir` and group sessions by the resolved common `.git` dir,
+so **all worktrees of one repo group together** while staying distinct rows (each keeps its own
+branch/path). When the dir is gone or not a git repo, fall back to the path itself. Lossy-decoded
+Cursor paths can occasionally land a session in a near-duplicate group (e.g. `delta` vs
+`vet-studio-delta`) - recognize and merge those during analysis.
 
 ## Adding a new agent
 The machine has ~20 agent dirs (`.amp`, `.opencode`, `.gemini`, `.copilot`, `.factory`,
 `.continue`, `.kilocode`, `.roo`, ...). To add one:
 1. Find its session store (usually `~/.<agent>/**` JSONL or a SQLite db) and confirm the schema.
-2. Add a `scan_<agent>(win_start, win_end)` to `discover_sessions.py` that yields `_new_rec(...)`
-   records (set `project_path`, timestamps via `_track_ts`, asks via `record_user`, tool/signal
-   counts), then register it in `SCANNERS`.
-3. Add an `ev_<agent>(path)` generator to `extract_session.py` yielding `("U"|"A"|"ERR", text, [tools])`
-   and register it in `EXTRACTORS` + `detect_agent`.
-4. Add the agent to the default `--agents` list and the resume-command patterns in SKILL.md.
+2. Document its path, per-record shape, and the fields that carry cwd/timestamps/model/asks/signals
+   in a section above, following the pattern of the existing agents.
+3. Add its enumeration glob to Step 2 in SKILL.md and its resume-command pattern to Step 5.
