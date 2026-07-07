@@ -1,7 +1,7 @@
 {
   "name": "@crown-dev-studios/skill-issue",
   "version": "0.5.0",
-  "description": "First-party AI agent skills and companion CLIs for software development workflows.",
+  "description": "First-party AI agent skills for software development workflows.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/crown-dev-studios/skill-issue.git"
@@ -12,14 +12,9 @@
   },
   "packageManager": "pnpm@10.30.3",
   "type": "module",
-  "bin": {
-    "skill-issue": "./bin/skill-issue.js",
-    "second-opinion": "./skills/cds-second-opinion/dist/index.js"
-  },
   "files": [
     "LICENSE",
     "README.md",
-    "bin/",
     "skills/cds-agent-standup/",
     "skills/cds-architecture-review/",
     "skills/cds-brainstorming/",
@@ -33,7 +28,7 @@
     "skills/cds-veneer/",
     "skills/cds-second-opinion/SKILL.md",
     "skills/cds-second-opinion/README.md",
-    "skills/cds-second-opinion/dist/",
+    "skills/cds-second-opinion/templates/",
     "skills/cds-review-council/SKILL.md",
     "skills/cds-review-council/README.md",
     "skills/cds-review-council/templates/",
@@ -48,16 +43,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "pnpm run build:second-opinion",
-    "build:second-opinion": "tsc -p skills/cds-second-opinion/tsconfig.json",
-    "typecheck": "pnpm run typecheck:second-opinion",
-    "typecheck:second-opinion": "tsc --noEmit -p skills/cds-second-opinion/tsconfig.json",
-    "second-opinion": "tsx skills/cds-second-opinion/src/index.ts",
-    "pretest": "pnpm run build",
-    "test": "pnpm run test:root && pnpm run test:second-opinion",
-    "test:root": "node --test --test-concurrency=1 test/*.test.mjs",
-    "test:second-opinion": "node --test --test-concurrency=1 skills/cds-second-opinion/test/*.test.mjs",
-    "prepack": "pnpm run build",
+    "validate": "bash scripts/validate.sh",
     "pack:dry-run": "npm_config_cache=.npm-cache npm pack --dry-run --json",
     "verify:package": "pnpm run pack:dry-run",
     "release:preflight": "bash scripts/prepare-release.sh",
@@ -65,10 +51,5 @@
     "release:bump": "bash scripts/bump-version.sh",
     "release:deploy": "bash scripts/deploy.sh",
     "release:manual": "bash scripts/prepare-release.sh"
-  },
-  "devDependencies": {
-    "@types/node": "^24.0.0",
-    "tsx": "^4.20.6",
-    "typescript": "^5.9.0"
   }
 }

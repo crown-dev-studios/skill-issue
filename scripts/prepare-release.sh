@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local preflight only: build, test, and pack dry-run. Does not publish.
+# Local preflight only: validate skills and pack dry-run. Does not publish.
 # For a full release use ./scripts/bump-version.sh then ./scripts/deploy.sh
 set -euo pipefail
 
@@ -9,11 +9,8 @@ cd "$ROOT_DIR"
 echo "==> Installing dependencies (frozen lockfile)"
 pnpm install --frozen-lockfile
 
-echo "==> Building package"
-pnpm run build
-
-echo "==> Running tests"
-pnpm run test
+echo "==> Validating skills"
+bash scripts/validate.sh
 
 echo "==> Verifying package contents"
 pnpm run pack:dry-run

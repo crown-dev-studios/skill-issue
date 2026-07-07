@@ -1,6 +1,6 @@
 # skill-issue
 
-First-party AI agent skills and companion CLIs for software development workflows. Built and maintained by [Crown Dev Studios](https://crown.dev).
+First-party AI agent skills for software development workflows. Built and maintained by [Crown Dev Studios](https://crown.dev).
 
 ## Install
 
@@ -33,22 +33,16 @@ curl -fsSL https://raw.githubusercontent.com/crown-dev-studios/skill-issue/main/
 
 Override the destination with `SKILL_ISSUE_DEST=/some/other/path ./scripts/install.sh`. On these hosts skills are invoked as `cds-<name>` (Codex uses `$cds-<name>`).
 
-### npm (CLIs only)
+### npm (skills only)
 
-`second-opinion` is a companion CLI published in the same package:
-
-```bash
-npx @crown-dev-studios/skill-issue second-opinion --help
-```
-
-Install globally for a direct command name:
+The npm package ships the same skill files for tooling that consumes them from `node_modules` or for version-pinned installs:
 
 ```bash
-npm install -g @crown-dev-studios/skill-issue
-skill-issue --help
+npm install @crown-dev-studios/skill-issue
+ls node_modules/@crown-dev-studios/skill-issue/skills/
 ```
 
-`skill-issue` is the canonical release unit; the CLIs ship from the same root package so their versions stay in sync.
+There are no executables — every skill is prompt-driven markdown, and `@crown-dev-studios/skill-issue` on npm is the canonical versioned release unit.
 
 ## Upgrade
 
@@ -89,22 +83,15 @@ From the repo root:
 
 ```bash
 pnpm install
-pnpm run build
-pnpm run test
+pnpm run validate
 pnpm run pack:dry-run
-```
-
-Local command entrypoints are also exposed as root scripts:
-
-```bash
-pnpm run second-opinion -- --help
 ```
 
 ## Packaging and release
 
 The root `VERSION` file and `package.json` are the single source of truth. Release scripts live in `scripts/` and are exposed as `pnpm run release:*`.
 
-Preflight (no publish) — install with frozen lockfile, build, test, and dry-run `npm pack`:
+Preflight (no publish) — install with frozen lockfile, validate skills, and dry-run `npm pack`:
 
 ```bash
 pnpm run release:preflight

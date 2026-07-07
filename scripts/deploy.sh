@@ -114,19 +114,17 @@ push_git() {
 }
 
 install_and_verify() {
-  log_step "Installing, building, testing, and verifying"
+  log_step "Installing, validating, and verifying"
   if [[ "$DRY_RUN" == true ]]; then
     log_warn "[DRY RUN] Would run: pnpm install --frozen-lockfile"
-    log_warn "[DRY RUN] Would run: pnpm run build"
-    log_warn "[DRY RUN] Would run: pnpm run test"
+    log_warn "[DRY RUN] Would run: bash scripts/validate.sh"
     log_warn "[DRY RUN] Would run: pnpm run verify:package"
     return 0
   fi
   (cd "$ROOT_DIR" && pnpm install --frozen-lockfile)
-  (cd "$ROOT_DIR" && pnpm run build)
-  (cd "$ROOT_DIR" && pnpm run test)
+  (cd "$ROOT_DIR" && bash scripts/validate.sh)
   (cd "$ROOT_DIR" && pnpm run verify:package)
-  log_info "Build, tests, and package verification passed"
+  log_info "Validation and package verification passed"
 }
 
 publish_npm() {
@@ -184,7 +182,7 @@ echo -e "${YELLOW}Ready to deploy ${NPM_PKG}@${VERSION}${NC}"
 echo ""
 echo "This will:"
 [[ "$SKIP_GIT" == false ]] && echo "  • Push current branch + tag v${VERSION} to origin"
-echo "  • pnpm install --frozen-lockfile, build, test, verify:package"
+echo "  • pnpm install --frozen-lockfile, validate.sh, verify:package"
 echo "  • pnpm publish --access public"
 echo ""
 
@@ -207,4 +205,4 @@ log_step "Deploy complete"
 echo -e "${GREEN}Published:${NC} https://www.npmjs.com/package/${NPM_PKG}"
 echo ""
 echo "Smoke-check:"
-echo "  npx ${NPM_PKG} second-opinion --help"
+echo "  npm view ${NPM_PKG} files"

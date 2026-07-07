@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  build-test-validate:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,10 +18,8 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run build
-      - run: pnpm run test
       - run: bash scripts/validate.sh
-      - run: node bin/skill-issue.js --version
+      - run: pnpm run verify:package
       - name: Native plugin validation (best-effort)
         run: |
           if command -v claude >/dev/null 2>&1; then
