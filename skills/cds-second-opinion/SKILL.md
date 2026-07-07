@@ -6,7 +6,7 @@ argument-hint: "[optional review focus]"
 
 # Second Opinion
 
-Get a second opinion on your current conversation from a different AI model by invoking the other CLI in a fresh local shell session.
+Get a second opinion on the current conversation from a different AI model by invoking the other CLI with a pointer to this session's transcript on disk.
 
 ## When to use
 
@@ -31,84 +31,66 @@ Invoke with `/second-opinion` mid-conversation when you want another model to re
 
 When this skill is invoked:
 
-1. **Parse arguments**: If the user provided text after `/second-opinion`, use it as the review focus. If no arguments, the default focus is accuracy, approach, and completeness.
+### Step 1: Parse Arguments
 
-2. **Run the review script**:
+If the user provided text after `/second-opinion`, use it as the review focus. If no arguments, the default focus is accuracy, approach, and completeness. If the user asked for the reviewer to see the reasoning/chain-of-thought, note that for Step 4.
 
-```bash
-npx @crown-dev-studios/skill-issue second-opinion --cwd "$PWD" --source SOURCE --session-id SESSION_ID [--focus "REVIEW_FOCUS"]
-```
+### Step 2: Identify the Current Session
 
-- The `--focus` flag is only needed if the user specified a custom focus.
-- This command requires `@crown-dev-studios/skill-issue` to be resolvable by `npx`. Copying the skill directory alone is not enough.
-- When this skill runs inside Claude, pass `--source claude --session-id "${CLAUDE_SESSION_ID}"` so Codex reviews the current Claude session deterministically.
-- When this skill runs inside Codex, pass `--source codex --session-id "${CODEX_THREAD_ID}"` so Claude reviews the current Codex thread deterministically.
-- The caller must pass both `--source` and `--session-id` explicitly. The CLI does not auto-detect them.
-- The script calls the other CLI directly as a subprocess and parses its structured JSONL output.
-- It reads the full session file from disk (not affected by context compaction).
-- Timeout is 5 minutes by default. Override with `--timeout-ms` if needed.
-- For local development from a source checkout, anchor the command to that checkout, for example `pnpm --dir /absolute/path/to/skill-issue run second-opinion -- --cwd "$PWD"`.
+The transcript must be the current thread — never guess the session from file modification times.
 
-3. **Present the review**: Show the reviewer's output to the user. Add a brief note about which model reviewed it.
+- Inside Claude Code: the session ID is `${CLAUDE_SESSION_ID}`.
+- Inside Codex: the session ID is `${CODEX_THREAD_ID}`.
 
-## Options
+If the variable for the current environment is unavailable, stop and explain that deterministic transcript selection is not possible here.
 
-The script supports these flags for advanced use:
+### Step 3: Resolve the Transcript Path
 
-- `--source claude|codex` — Source conversation to review
-- `--session-id <id>` — Session or thread ID to review
-- `--reviewer claude|codex` — Force which CLI does the review (defaults to the opposite of source)
-- `--timeout-ms <n>` — Reviewer timeout in milliseconds (default: 300000)
-- `--include-thinking` — Include chain-of-thought reasoning in the review context
-- `--extract-only` — Just print the extracted conversation without calling a reviewer
-- `--max-chars N` — Max conversation characters to send (default: 200000)
+- Claude Code session: `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`, where `<encoded-cwd>` is the absolute working directory with `/` replaced by `-`. If that exact path does not exist, search `~/.claude/projects/*/<session-id>.jsonl`.
+- Codex session: search `~/.codex/sessions/` (dated subdirectories) for `rollout-*<session-id>*.jsonl`.
 
-Defaults:
+Verify the file exists before proceeding; if it cannot be found, stop and report the paths checked.
 
-- Claude: `claude --dangerously-skip-permissions --verbose --output-format stream-json --include-partial-messages -p`
-- Codex: `codex exec --json --dangerously-bypass-approvals-and-sandbox`
+### Step 4: Render the Reviewer Prompt
 
-The review prompt is written to reviewer stdin, and the CLI parses the structured JSONL response to return the final assistant review text.
+Create a scratch directory (`mktemp -d`). Render [reviewer.md](templates/reviewer.md) into `<scratch>/prompt.md`, filling every placeholder:
 
-## Deterministic Session Selection
+- `{{REVIEWER_NAME}}` — the reviewing model's CLI (`Codex` when running from Claude Code, `Claude` when running from Codex)
+- `{{SOURCE_TOOL}}` — `Claude Code` or `Codex`
+- `{{TRANSCRIPT_PATH}}` — absolute path from Step 3
+- `{{REVIEW_FOCUS}}` — from Step 1
+- `{{OUTPUT_PATH}}` — absolute path to `<scratch>/review.md`
 
-The caller must pass the live session ID for the current tool instead of asking the CLI to infer it.
+By default the template tells the reviewer to skip reasoning/thinking content so the opinion stays independent; if the user explicitly asked for reasoning to be included, remove that instruction from the rendered prompt.
 
-### Claude
+### Step 5: Invoke the Other CLI
 
-When this skill runs inside Claude, the source transcript must be the current Claude session.
+Run the opposite CLI in the background (a review can take several minutes):
 
-- Use the live Claude session ID provided to the skill as `${CLAUDE_SESSION_ID}`.
-- Pass that value explicitly to the review script with `--source claude --session-id`.
-- If `${CLAUDE_SESSION_ID}` is unavailable, stop and explain that deterministic Claude transcript selection is not possible in the current environment.
+- From Claude Code:
 
-Example:
+  ```bash
+  codex exec --dangerously-bypass-approvals-and-sandbox \
+    "$(cat "<scratch>/prompt.md")" > "<scratch>/reviewer.log" 2>&1
+  ```
 
-```bash
-npx @crown-dev-studios/skill-issue second-opinion --cwd "$PWD" --source claude --session-id "${CLAUDE_SESSION_ID}" [--focus "REVIEW_FOCUS"]
-```
+- From Codex:
 
-### Codex
+  ```bash
+  claude --dangerously-skip-permissions -p \
+    "$(cat "<scratch>/prompt.md")" > "<scratch>/reviewer.log" 2>&1
+  ```
 
-When this skill runs inside Codex, the source transcript must be the current Codex thread.
+If the reviewer CLI is not on `PATH`, stop and tell the user which CLI is required.
 
-- Use the live Codex session ID provided to the skill as `${CODEX_THREAD_ID}`.
-- Pass that value explicitly to the review script with `--source codex --session-id`.
-- If `${CODEX_THREAD_ID}` is unavailable, stop and explain that deterministic Codex transcript selection is not possible in the current environment.
+The run succeeded when `<scratch>/review.md` exists; `reviewer.log` is diagnostic only. If the process exits without writing `review.md`, report the failure with the tail of `reviewer.log` — do not retry silently.
 
-### Implementation Requirements
+### Step 6: Present the Review
 
-The review script should resolve sessions from the explicit `--source` and `--session-id` pair provided by the caller. It must not guess from runtime env vars or modification-time heuristics.
+Relay `review.md` to the user, noting which model produced it. Do not soften or re-adjudicate the reviewer's opinion — disagreements are signal.
 
-## How it works
+## How It Works
 
-1. Finds the current session JSONL file on disk:
-   - Claude Code: `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`
-   - Codex: `~/.codex/sessions/<year>/<month>/<day>/rollout-<id>.jsonl`
-2. Parses all user messages, assistant responses, chain-of-thought, and tool usage
-3. Strips system prompts, permission blocks, and injection artifacts
-4. Truncates intelligently if the conversation exceeds the context limit (keeps beginning + end)
-5. Sends to the other CLI as a direct subprocess:
-   - If in Claude Code → `codex exec` for review
-   - If in Codex → `claude -p` for review
-6. Parses the structured JSONL response and returns the final review text
+- The harness provides the current session ID; this skill only turns it into a transcript path.
+- The reviewer is a full agent with its own file tools: it reads the on-disk transcript itself (unaffected by context compaction) and selectively, instead of receiving a pre-truncated export.
+- There is no companion CLI or build step. The only subprocess is the other vendor's CLI, spawned directly.
