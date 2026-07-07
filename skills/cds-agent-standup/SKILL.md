@@ -8,79 +8,72 @@ description: "Review past coding-agent sessions across Claude Code, Codex, Curso
 Turn raw coding-agent session logs into a morning-kickoff briefing. The user runs this to
 answer one question: **"Given everything my agents and I did recently, how do I start today?"**
 
+This skill is instructions, not machinery. You navigate the session logs with your own tools -
+`find`, `jq`, `sqlite3`, `git`, and file reads - guided by `references/session-formats.md`. There
+is no interpreter to resolve and no bundled program to run.
+
 ## Pipeline
 
 1. Resolve the time window (default: yesterday).
-2. `discover_sessions.py` -> compact inventory JSON (metadata + signals, grouped by project/worktree).
-3. Select the few sessions worth a deep look -> `extract_session.py` -> skeleton files in scratch.
-4. Analyze: cluster themes, classify each thread's status + WHY, map worktree relationships,
+2. **Discover** - enumerate recent sessions across the agents and pull cheap metadata into a
+   working inventory, grouped by project/worktree.
+3. **Deep-read** only the few sessions worth it - selectively, never whole files.
+4. **Analyze** - cluster themes, classify each thread's status + WHY, map worktree relationships,
    score orchestratability, build resume commands. (See `references/analysis-rubric.md`.)
-5. Write `report.json` (schema below).
-6. `render_report.py` -> `~/agent-standup/<date>/report.md` + `report.html`.
+5. Organize the findings into the report structure (schema below).
+6. **Write** `~/agent-standup/<date>/report.md` and a single self-contained `report.html`.
 7. Present a tight summary + the file paths + the top "start here" items.
-
-Resolve a Python 3.12+ interpreter. The scripts need no other setup - each resolves its own
-sibling files (via `__file__`) and searches the agents' chat directories itself, so the skill runs
-from wherever it's installed. Point `SKILL` at this skill's directory (the base dir your harness
-names when it loads the skill):
-```bash
-for py in python3.14 python3.13 python3.12 python3; do command -v "$py" >/dev/null 2>&1 && \
-  "$py" -c 'import sys;exit(0 if sys.version_info>=(3,12) else 1)' && { PY="$py"; break; }; done
-SKILL="<this skill's directory>"   # the base dir your harness reported on load; scripts/ sits inside it
-```
 
 ## Guardrails (read before running)
 
-- **Never read a whole session file into context.** They reach 1-7MB. Only the scripts touch
-  raw transcripts; you read the compact inventory JSON and the trimmed skeletons.
-- **Never reproduce tool inputs/outputs or reasoning blocks.** `extract_session.py` already
-  strips them; keep them out of the report too.
+- **Read cheaply; never pull a whole session file into context.** They reach 1-7MB. Use `head`/
+  `tail`/`jq` on JSONL and targeted `sqlite3` queries on Cursor's `store.db` - pull first/last
+  message, title, model, timestamps, and signals, not the full transcript.
+- **Never reproduce tool inputs/outputs or reasoning blocks.** When you deep-read a session, keep
+  `tool_use`/`tool_result` payloads and thinking blocks out of your notes and out of the report.
 - **Surface technical work, not personal content.** Sessions contain secrets, frustration,
-  half-thoughts. Report the work. Secrets are auto-redacted; use `--share-safe` to also strip
-  home paths/usernames when the user wants to share the HTML.
+  half-thoughts. Report the work, never the secrets. When the user wants to share the HTML, also
+  strip home paths and usernames (`/Users/<name>` or `/home/<name>` -> `~`).
 - **Today's live session is the user's current context** - don't feature it in the report.
 
 ## Step 1 - Resolve the window
 
-| User says | Flag |
-|-----------|------|
-| (nothing), "yesterday", "kick off my day" | `--yesterday` (default) |
-| "today", "so far today" | `--today` |
-| "this week", "last few days", "past week" | `--week` |
-| "last N days" | `--days N` |
-| "since Monday", a date range | `--since <ISO> --until <ISO>` |
+| User says | Window |
+|-----------|--------|
+| (nothing), "yesterday", "kick off my day" | the previous calendar day (default) |
+| "today", "so far today" | midnight today to now |
+| "this week", "last few days", "past week" | the last 7 days |
+| "last N days" | the last N days |
+| "since Monday", a date range | the explicit start to end |
 
 ## Step 2 - Discover
 
-```bash
-SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/agent-standup-XXXXXX")
-"$PY" "$SKILL/scripts/discover_sessions.py" --yesterday --json "$SCRATCH/inventory.json"
-```
-Read `inventory.json`. It has `totals`, `projects[]` (grouped by **git common-dir**, so every
-worktree of one repo lands together), and a flat `sessions[]`. Each session carries: agent,
-project_label, branch/worktree, model, title, first_ask/last_ask, start/end, duration, turn &
-tool counts, files_touched, `kind` (interactive/automation/review/agentic-prompt), and `signals`
-(completed, ended_mid_tool, had_errors, compacted). Control-only no-op sessions are dropped.
+Sessions live at the on-disk paths in `references/session-formats.md` - one file per session for
+Claude Code, Codex, Pi, and the cursor-agent CLI; a SQLite `store.db` for Cursor IDE. Find the ones
+active in the window and read their metadata. You have a shell, `jq`, `sqlite3`, and `git` - navigate
+however fits; the skill doesn't prescribe the commands. Hold to two things: read cheaply (first/last
+message, title, model, timestamps, signals - not the whole 1-7MB file), and group sessions by repo so
+every worktree lands together (see `references/session-formats.md` - "How project grouping works").
 
-Agents are config-driven via `--agents claude,codex,cursor,pi` (default all four). Cursor reads
-both the IDE store (`~/.cursor/chats/*/store.db`) and the cursor-agent CLI transcripts.
+Build a small working inventory - per session: agent, project group, branch/worktree, model, title,
+first/last ask, start/end, duration, turn & tool counts, files_touched, `kind`
+(interactive/automation/review/agentic-prompt), and `signals` (completed, ended_mid_tool,
+had_errors, compacted). Drop control-only no-op sessions. If nothing falls in the window, tell the
+user and offer a wider one.
 
-If `totals.sessions` is 0, tell the user nothing was found in that window and offer a wider one.
+## Step 3 - Deep-read only what needs it
 
-## Step 3 - Deep-extract only what needs it
+Most threads are clear from the inventory metadata alone. Deep-read **only** sessions that are
+ambiguous or pivotal (cap ~8-10). Prioritize sessions where: `ended_mid_tool` or `had_errors` is
+true; tool counts are high but the outcome is unclear; the most recent session in each active
+project; or two worktrees whose relationship is unclear.
 
-Most threads are clear from inventory metadata alone. Deep-extract **only** sessions that are
-ambiguous or pivotal (cap ~8-10 total). Prioritize sessions where:
-`signals.ended_mid_tool` or `signals.had_errors` is true; high tool_calls but unclear outcome;
-the most recent session in each active project; or two worktrees whose relationship is unclear.
-
-```bash
-"$PY" "$SKILL/scripts/extract_session.py" "<session-file>" --output "$SCRATCH/<id>.skeleton.txt"
-```
-Read the skeletons. For a large window (>~80 sessions), dispatch a subagent per project group
-with the relevant skeleton paths instead of reading them all yourself, using your harness's
-subagent primitive (Claude Code: `Agent`; Codex: `spawn_agent`; Pi: `subagent` via pi-subagents;
-Cursor: its task/agent primitive). If your harness has no subagent primitive, process groups inline.
+When you deep-read, pull only the conversational spine - user asks and assistant `text` replies -
+and skip `tool_use`/`tool_result` payloads and reasoning/thinking blocks (per-agent record shapes
+in `references/session-formats.md`). For a large window (>~80 sessions), dispatch a subagent per
+project group with the relevant paths using your harness's subagent primitive (Claude Code:
+`Agent`; Codex: its spawn/subagent primitive; Pi: `subagent`; Cursor: its task/agent primitive). If
+your harness has no subagent primitive, process groups inline.
 
 ## Step 4 - Analyze
 
@@ -95,12 +88,12 @@ Work through `references/analysis-rubric.md`. Produce, per project:
   abandoned for another thread, or was a distraction.
 - **Orchestratability** - autonomous (clear measurable goal, low ambiguity -> set-and-forget),
   semi, or manual (needs tight iteration). Note complexity (S/M/L) and whether the goal is measurable.
-- **Resume command** - how to pick the thread back up (Step 6 patterns).
+- **Resume command** - how to pick the thread back up (Step 5 patterns).
 
-## Step 5 - Write report.json
+## Step 5 - Organize the findings
 
-Write `$SCRATCH/report.json` with this shape (the renderer tolerates missing optional keys; omit
-sections that are empty):
+Structure the analysis like this - it's the shape you render from in Step 6, not a script input.
+Omit sections that are empty.
 
 ```json
 {
@@ -142,23 +135,25 @@ in `orchestration_opportunities`; put human decisions / reviews / privacy calls 
 The `cd` is the point - it removes "which folder was that again?". Treat exact resume flags as
 best-effort (they vary by CLI version); the directory + session id are what matter.
 
-## Step 6 - Render
+## Step 6 - Write the report
 
-```bash
-OUT=~/agent-standup/$(date +%Y-%m-%d)
-"$PY" "$SKILL/scripts/render_report.py" "$SCRATCH/report.json" --outdir "$OUT"
-```
-Add `--share-safe` if the user wants to share the HTML (redacts home paths + username).
+Write two files into `~/agent-standup/<date>/` (date = the run day):
+- `report.md` - the briefing in markdown, straight from the Step 5 structure.
+- `report.html` - one self-contained HTML file (inline CSS/JS, no external dependencies) the user
+  can open or share. Lead with the headline and top kickoff items; then one block per project with
+  its threads, statuses, and the WHY; then orchestration opportunities and needs-attention.
+
+If the user wants to share the HTML, strip home paths and usernames.
 
 ## Step 7 - Present
 
 Show the user: the **headline**, the **top 3 kickoff items**, a one-line-per-project status, and
 the saved paths (`report.md` to read, `report.html` to open in a browser). Offer to open the HTML
 (`open <path>/report.html`). Keep it short - the report is the artifact; your message is the nudge
-to open it. Then clean up scratch: `rm -rf "$SCRATCH"`.
+to open it.
 
 ## References
 - `references/session-formats.md` - on-disk layout + record schema for each agent, and how to add
-  a new agent. Read when discovery misses sessions or you're extending coverage.
+  a new agent. The source of truth for the paths and fields you read in Steps 2-3.
 - `references/analysis-rubric.md` - the classification rubric for status/why, worktree
   relationships, and orchestratability. Read during Step 4.
