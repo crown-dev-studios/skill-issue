@@ -15,26 +15,7 @@
   "files": [
     "LICENSE",
     "README.md",
-    "skills/cds-agent-standup/",
-    "skills/cds-architecture-review/",
-    "skills/cds-brainstorming/",
-    "skills/cds-code-simplicity/",
-    "skills/cds-linear-issue-shaping/",
-    "skills/cds-plan-compliance/",
-    "skills/cds-plan-review/",
-    "skills/cds-planning/",
-    "skills/cds-review-triage/",
-    "skills/cds-testing-philosophy/",
-    "skills/cds-veneer/",
-    "skills/cds-second-opinion/SKILL.md",
-    "skills/cds-second-opinion/README.md",
-    "skills/cds-second-opinion/templates/",
-    "skills/cds-review-council/SKILL.md",
-    "skills/cds-review-council/README.md",
-    "skills/cds-review-council/agents/",
-    "skills/cds-review-council/templates/",
-    "skills/cds-review-council/schemas/",
-    "skills/cds-review-council/references/"
+    "skills/"
   ],
   "publishConfig": {
     "access": "public"
