@@ -84,6 +84,8 @@ Run the opposite CLI in the background (a review can take several minutes):
 
 If the reviewer CLI is not on `PATH`, stop and tell the user which CLI is required.
 
+Poll for `<scratch>/review.md` roughly every 30 seconds rather than blocking indefinitely. If the process is still running with no review after ~15 minutes, tell the user and let them decide whether to keep waiting — do not kill the reviewer and do not retry silently.
+
 The run succeeded when `<scratch>/review.md` exists; `reviewer.log` is diagnostic only. If the process exits without writing `review.md`, fall back to the reviewer's own final message before declaring failure:
 
 - From Claude Code: use `<scratch>/last-message.txt` if it is non-empty — `--output-last-message` is Codex's designed handoff artifact and carries the complete final message. The non-empty check matters: `codex exec` has a known regression class of exiting 0 with empty output in detached contexts, so an empty file means the run failed, not that the review was empty.
@@ -93,7 +95,7 @@ If the fallback is also empty, report the failure with the tail of `reviewer.log
 
 ### Step 6: Present the Review
 
-Relay `review.md` to the user, noting which model produced it. Do not soften or re-adjudicate the reviewer's opinion — disagreements are signal.
+Relay `review.md` to the user, noting which model produced it and printing the file's absolute path. The scratch directory is temporary — if the review is worth keeping, offer to copy it somewhere durable (e.g. `docs/reviews/second-opinion-<date>.md`, matching where cds-review-council writes its runs). Do not soften or re-adjudicate the reviewer's opinion — disagreements are signal.
 
 ## How It Works
 

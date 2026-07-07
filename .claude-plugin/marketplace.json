@@ -5,7 +5,7 @@
     "url": "https://github.com/crown-dev-studios"
   },
   "metadata": {
-    "description": "First-party AI agent skills and companion CLIs from Crown Dev Studios.",
+    "description": "First-party AI agent skills from Crown Dev Studios.",
     "version": "0.5.0"
   },
   "plugins": [

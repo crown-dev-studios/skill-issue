@@ -1,7 +1,7 @@
 {
   "name": "skill-issue",
   "version": "0.5.0",
-  "description": "First-party AI agent skills and companion CLIs for software development workflows.",
+  "description": "First-party AI agent skills for software development workflows.",
   "author": {
     "name": "Crown Dev Studios",
     "url": "https://github.com/crown-dev-studios"
