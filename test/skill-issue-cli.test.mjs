@@ -20,7 +20,6 @@ test("skill-issue help lists the available commands", () => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /skill-issue <command>/);
   assert.match(result.stdout, /second-opinion/);
-  assert.match(result.stdout, /review-council/);
 });
 
 test("skill-issue forwards to second-opinion", () => {
@@ -28,13 +27,6 @@ test("skill-issue forwards to second-opinion", () => {
 
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Usage: second-opinion --source claude\|codex/);
-});
-
-test("skill-issue forwards to review-council", () => {
-  const result = runCli(["review-council", "--help"]);
-
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /review-council --target <target>/);
 });
 
 test("skill-issue rejects unknown commands", () => {

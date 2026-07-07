@@ -1,6 +1,6 @@
 # Review Council
 
-Review Council is a CLI and companion skill for model-parallel code review. It runs Claude and Codex in parallel with selected skill references (architecture-review, testing-philosophy, plan-compliance) passed into reviewer prompts as additional review lenses, then synthesizes all findings through an LLM judge with semantic deduplication, contradiction detection, and dependency ordering.
+Review Council is a skill for model-parallel code review. It runs a Claude reviewer and a Codex reviewer in parallel with selected skill references (architecture-review, testing-philosophy, plan-compliance) passed into reviewer prompts as additional review lenses, then synthesizes all findings through a judge with semantic deduplication, contradiction detection, and dependency ordering.
 
 Use it when you want:
 
@@ -8,134 +8,37 @@ Use it when you want:
 - a judge that deduplicates across both models, detects contradictions, and orders findings by dependency
 - automated self-review integrated into agentic workflows
 
-## Status
+## How It Runs
 
-The orchestrator handles the happy path and common failure modes:
+The skill is prompt-driven — the agent harness owns all process lifecycle:
 
-- Stage timeouts with two-phase kill (SIGTERM then SIGKILL) prevent hung runs
-- Automatic retry with exponential backoff handles transient failures
-- Every stage emits a JSONL stdout event stream for diagnosis
-- Claude runs with `claude-opus-4-6 --effort max`
-- Codex reviewer and judge run with `gpt-5.4` plus `model_reasoning_effort="xhigh"`
-- Partial reviewer failure still allows the judge to run on available data
-- Failed stages surface stderr excerpts, validation errors, warnings, and stream log paths in the HTML report
+- The **Claude reviewer** and the **judge** run as parallel subagents launched by the host agent (Claude Code or similar).
+- The **Codex reviewer** runs as a background `codex exec --json` process, and is skipped when `codex` is not on `PATH`.
+- Stage success is determined by file artifacts (`done.json` plus valid structured output), never by stdout content.
+
+There is no orchestrator binary and nothing to build. See [SKILL.md](SKILL.md) for the full workflow.
 
 ## Requirements
 
-- Node.js 20+
-- `pnpm` 10.30.3+
-- `claude` and/or `codex` on `PATH`
-- a Git working tree to review
+- An agent harness that can launch subagents (e.g., Claude Code)
+- `codex` on `PATH` for the Codex reviewer (optional)
+- A Git working tree to review
 
-## Install
+## Output
 
-Review Council now ships inside the unified `@crown-dev-studios/skill-issue` package:
+Each run writes to `docs/reviews/<run-id>/`:
 
-```bash
-npx @crown-dev-studios/skill-issue review-council --target "staged changes" --open-html
-```
+- `judge/summary.md` — final adjudicated review
+- `judge/verdict.json` — structured verdict matching [judge-verdict.schema.json](schemas/judge-verdict.schema.json)
+- `follow-ups.md` — human-readable next-step list derived from the verdict
+- per-reviewer `report.md`, `findings.json`, and `done.json`
 
-## Quick Start
-
-From the project root you want to review:
-
-```bash
-npx @crown-dev-studios/skill-issue review-council \
-  --target "staged changes" \
-  --open-html
-```
-
-That's it. Claude + Codex review in parallel, Codex judge, HTML report opens in your browser. Output goes to `docs/reviews/<run-id>/`.
-
-Main outputs:
-
-- `judge/summary.md`
-- `judge/verdict.json`
-- `follow-ups.md`
-- `bundle.json`
-- `index.html`
-
-## CLI Options
-
-```
---target <target>                 Review target label (required)
---run-dir <dir>                   Output directory for this run
---no-claude                       Skip Claude reviewer
---no-codex                        Skip Codex reviewer
---skip-judge                      Skip the judge stage
---skill-paths <paths>             Comma-separated paths to skill directories
---open-html                       Open index.html after rendering (macOS)
---skip-html                       Skip HTML rendering
---timeout <ms>                    Stage timeout in ms (default: 900000)
---retries <n>                     Max retries per stage on failure (default: 2)
-```
-
-### Execution Contract
-
-There are no command override or sentinel bypass flags. Review Council uses canonical built-in execution metadata for Claude, Codex, and the judge, and every executable stage still requires exit code `0` plus its expected artifacts plus `done.json`.
-
-## Operational Rules
-
-- Built-in reviewer commands are non-interactive and emit JSONL to stdout.
-- `stdout` is diagnostic transport only; the authoritative outputs are the required files in each stage directory plus `done.json`.
-- Keep reviewer artifacts inside the run directory.
-- Claude progress is derived from live `stream-json` stdout events, and Claude completion is determined by subprocess completion plus artifact validation.
-- Codex and the judge keep their runtime `notify` callback wiring.
-- Selected skills are passed into reviewer prompts as additional review lenses for the run; the orchestrator does not inline local `SKILL.md` contents.
-- Do not create authoritative files in `todos/` during raw review.
-- If you reuse `workflows-review`, run each reviewer in a separate worktree.
-
-## Failure Triage
-
-If a run fails or stalls, inspect:
-
-- `<run>/claude/status.json`
-- `<run>/codex/status.json`
-- `<run>/judge/status.json`
-- each stage's `stream.jsonl` and `stderr.log`
-
-The `status.json` for each stage includes `exit_code`, `timed_out`, `attempts`, `missing_artifacts`, and `validation_errors`. Stages additionally record stream artifact paths, `last_activity_at`, `last_event_type`, `stream_event_count`, `stream_parse_errors`, and optional warnings.
-
-If a stage exits `0` but does not write `done.json`, the stage is incomplete and the run should be treated as failed.
-
-## Publishing (maintainers)
-
-Review Council is released through the root [`package.json`](../package.json) and root [`VERSION`](../VERSION) file.
-
-**Prerequisites**
-
-- [`npm login`](https://docs.npmjs.com/cli/v11/commands/npm-login) (or another auth method `pnpm publish` can use for the public registry)
-- A **clean** git working tree in this repository
-- Git tag `vX.Y.Z` present locally before deploy (created by the bump script or manually)
-- Permission to publish `@crown-dev-studios/skill-issue` on npm
-
-**Scripts (same idea as `simple-auth`)**
-
-Run these from the repo root.
-
-| Step | Command |
-|------|---------|
-| Preflight only (build, test, pack dry-run) | `pnpm run release:preflight` or `./scripts/prepare-release.sh` |
-| Confirm `VERSION` ↔ `package.json` | `pnpm run release:check-version` or `./scripts/check-version.sh` |
-| Require local tag exists | `./scripts/check-version.sh --require-tag` |
-| Bump version, refresh lockfile, commit + tag (+ push) | `pnpm run release:bump -- patch` (or `major` / `minor` / `1.2.3`) |
-| Publish to npm | `pnpm run release:deploy` or `./scripts/deploy.sh` |
-
-**Typical release**
-
-1. `./scripts/bump-version.sh patch` — updates the root `VERSION`, root `package.json`, and root `pnpm-lock.yaml`, commits, tags `v…`, pushes (omit `--no-push` / `--no-tag` as needed).
-2. `./scripts/check-version.sh --require-tag`
-3. `./scripts/deploy.sh --dry-run` (optional)
-4. `./scripts/deploy.sh` — pushes branch + tag (unless `--skip-git`), runs install/build/test/verify, then `pnpm publish --access public`.
-
-Options: `./scripts/deploy.sh --dry-run` (no push/publish), `./scripts/deploy.sh --skip-git` (publish only; you already pushed).
-
-Update the root [`package.json`](../package.json) `repository` / `homepage` / `bugs` if the GitHub repo URL differs from `@crown-dev-studios/skill-issue` on GitHub.
+The full artifact contract lives in [references/output-contract.md](references/output-contract.md).
 
 ## Files
 
-- [SKILL.md](SKILL.md)
-- [references/cli-integration.md](references/cli-integration.md)
-- [references/output-contract.md](references/output-contract.md)
-- [src/orchestrate-review-council.ts](src/orchestrate-review-council.ts)
-- [src/render-review-html.ts](src/render-review-html.ts)
+- [SKILL.md](SKILL.md) — the workflow
+- [templates/reviewer-export.md](templates/reviewer-export.md) — model reviewer prompt template
+- [templates/judge.md](templates/judge.md) — judge prompt template
+- [schemas/](schemas/) — findings and verdict JSON schemas
+- [references/output-contract.md](references/output-contract.md) — artifact contract
