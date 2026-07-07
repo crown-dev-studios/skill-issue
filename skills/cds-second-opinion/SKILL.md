@@ -71,6 +71,7 @@ Run the opposite CLI in the background (a review can take several minutes):
 
   ```bash
   codex exec --dangerously-bypass-approvals-and-sandbox \
+    --output-last-message "<scratch>/last-message.txt" \
     "$(cat "<scratch>/prompt.md")" > "<scratch>/reviewer.log" 2>&1
   ```
 
@@ -83,7 +84,12 @@ Run the opposite CLI in the background (a review can take several minutes):
 
 If the reviewer CLI is not on `PATH`, stop and tell the user which CLI is required.
 
-The run succeeded when `<scratch>/review.md` exists; `reviewer.log` is diagnostic only. If the process exits without writing `review.md`, report the failure with the tail of `reviewer.log` — do not retry silently.
+The run succeeded when `<scratch>/review.md` exists; `reviewer.log` is diagnostic only. If the process exits without writing `review.md`, fall back to the reviewer's own final message before declaring failure:
+
+- From Claude Code: use `<scratch>/last-message.txt` if it is non-empty — `--output-last-message` is Codex's designed handoff artifact and carries the complete final message. The non-empty check matters: `codex exec` has a known regression class of exiting 0 with empty output in detached contexts, so an empty file means the run failed, not that the review was empty.
+- From Codex: `reviewer.log` itself is the fallback — `claude -p` prints exactly the final message to stdout.
+
+If the fallback is also empty, report the failure with the tail of `reviewer.log` — do not retry silently.
 
 ### Step 6: Present the Review
 
