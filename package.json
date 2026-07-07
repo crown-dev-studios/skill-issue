@@ -21,6 +21,7 @@
     "LICENSE",
     "README.md",
     "bin/",
+    "agent-standup/",
     "architecture-review/",
     "brainstorming/",
     "code-simplicity/",
