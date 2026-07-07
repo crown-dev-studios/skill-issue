@@ -22,7 +22,7 @@ REPO_URL="https://github.com/crown-dev-studios/skill-issue.git"
 DEST="${SKILL_ISSUE_DEST:-$HOME/.agents/skills}"
 
 # Resolve source: local checkout if run from the repo, otherwise clone to tmp.
-if [ -f "${BASH_SOURCE[0]}" ] && [ -d "$(dirname "${BASH_SOURCE[0]}")/../skills" ]; then
+if [ -f "${BASH_SOURCE[0]:-}" ] && [ -d "$(dirname "${BASH_SOURCE[0]:-}")/../skills" ]; then
   SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   CLEANUP=""
 else

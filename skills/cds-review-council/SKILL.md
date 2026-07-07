@@ -93,7 +93,7 @@ Launch all reviewers concurrently — do not run them one after another, and do 
 
   If `codex` is not installed, skip this reviewer and say so in the final summary.
 
-Wait for every launched reviewer to finish. A reviewer **succeeded** when its `done.json` exists and its `findings.json` parses as JSON with a `findings` array. A reviewer that finished without valid artifacts **failed** — do not retry it; proceed with the reviewers that succeeded and record the failure in the final summary. If every reviewer failed, stop and report that instead of running the judge.
+Wait for every launched reviewer to finish, polling for each reviewer's `done.json` roughly every 30 seconds rather than blocking indefinitely. If a reviewer has produced no artifacts and no new stream/log output for ~15 minutes, treat it as failed and stop waiting for it — do not kill the process (leave it to finish or die on its own) and do not retry. A reviewer **succeeded** when its `done.json` exists and its `findings.json` parses as JSON with a `findings` array. A reviewer that finished without valid artifacts **failed** — do not retry it; proceed with the reviewers that succeeded and record the failure in the final summary. If every reviewer failed, stop and report that instead of running the judge.
 
 ### Step 6: Judge
 
