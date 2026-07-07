@@ -9,7 +9,6 @@ const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const COMMANDS = {
   "second-opinion": resolve(rootDir, "skills", "cds-second-opinion", "dist", "index.js"),
-  "review-council": resolve(rootDir, "skills", "cds-review-council", "dist", "cli.js"),
 };
 
 function readPackageVersion() {
@@ -31,13 +30,11 @@ Usage:
 
 Commands:
   second-opinion   Review the current Claude Code or Codex thread with the other CLI
-  review-council   Run model-parallel code review and render a static report
 
 Run 'skill-issue <command> --help' for command-specific options.
 
 Examples:
   skill-issue second-opinion --source codex --session-id "$CODEX_THREAD_ID"
-  skill-issue review-council --target "staged changes" --open-html
 `);
 }
 

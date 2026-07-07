@@ -35,11 +35,10 @@ Override the destination with `SKILL_ISSUE_DEST=/some/other/path ./scripts/insta
 
 ### npm (CLIs only)
 
-`second-opinion` and `review-council` are companion CLIs published in the same package:
+`second-opinion` is a companion CLI published in the same package:
 
 ```bash
 npx @crown-dev-studios/skill-issue second-opinion --help
-npx @crown-dev-studios/skill-issue review-council --help
 ```
 
 Install globally for a direct command name:
@@ -99,7 +98,6 @@ Local command entrypoints are also exposed as root scripts:
 
 ```bash
 pnpm run second-opinion -- --help
-pnpm run review-council -- --help
 ```
 
 ## Packaging and release
