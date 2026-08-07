@@ -1,7 +1,8 @@
 # Analysis Rubric
 
 How to turn the session inventory + skeletons into the report. The goal is always the same:
-help the user decide **how to start today**. Read during Step 4.
+help the user see **where every thread stands and why**, so they can decide what to pick up
+next. Read during Step 4.
 
 ## Contents
 - Theme & thread clustering

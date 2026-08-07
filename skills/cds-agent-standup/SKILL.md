@@ -1,12 +1,15 @@
 ---
 name: cds-agent-standup
-description: "Review past coding-agent sessions across Claude Code, Codex, Cursor (IDE + CLI), and Pi over a time window, then produce a structured markdown report plus a single-file HTML dashboard that explains what was worked on, what finished, what's left and WHY (needs review? blocked on a human? superseded by another thread? got distracted?), how parallel worktrees/directories of one project relate (overlap, sequencing, divergence, A/B experiments), and which leftover tasks are orchestratable long-runs vs need hands-on iteration. Use for a morning kickoff or catch-up: 'what did I work on yesterday/this week', 'catch me up on my projects', 'agent standup', 'summarize my coding sessions', 'what's left to finish', 'how should I start my day', 'review my agent sessions'. Default window is yesterday; supports a week or any custom range."
+description: "Review past agent-session work across Claude Code, Codex, Cursor (IDE + CLI), and Pi over a time window (default yesterday). Produces a plain-language markdown briefing plus a single-file HTML dashboard: what was worked on, what finished, what's left and WHY (needs review? blocked on a human? superseded? got distracted?), how parallel worktrees relate, and what can run unattended vs needs hands-on work. Restores the context that switching between many threads costs. Type /cds-agent-standup to use."
+disable-model-invocation: true
 ---
 
 # Agent Standup
 
-Turn raw coding-agent session logs into a morning-kickoff briefing. The user runs this to
-answer one question: **"Given everything my agents and I did recently, how do I start today?"**
+Turn raw agent session logs into a plain-language briefing. The user runs this to answer one
+question: **"Given everything my agents and I did recently, where does each thread stand - and
+why?"** Re-deriving that by hand across many parallel threads is expensive; the report pays the
+context-switching cost once, in one place, so picking any thread back up is cheap.
 
 This skill is instructions, not machinery. You navigate the session logs with your own tools -
 `find`, `jq`, `sqlite3`, `git`, and file reads - guided by `references/session-formats.md`. There
@@ -26,9 +29,11 @@ is no interpreter to resolve and no bundled program to run.
 
 ## Guardrails (read before running)
 
-- **Read cheaply; never pull a whole session file into context.** They reach 1-7MB. Use `head`/
-  `tail`/`jq` on JSONL and targeted `sqlite3` queries on Cursor's `store.db` - pull first/last
-  message, title, model, timestamps, and signals, not the full transcript.
+- **Accuracy first - but never raw-dump a session file into context.** Files reach 1-7MB,
+  dominated by tool payloads. Read the full extent of whatever an accurate call requires - the
+  entire conversational spine of a session if that's what it takes - by extracting user asks and
+  assistant text with `jq`/`head`/`tail` on JSONL and targeted `sqlite3` queries on `store.db`,
+  instead of loading raw files.
 - **Never reproduce tool inputs/outputs or reasoning blocks.** When you deep-read a session, keep
   `tool_use`/`tool_result` payloads and thinking blocks out of your notes and out of the report.
 - **Surface technical work, not personal content.** Sessions contain secrets, frustration,
@@ -48,12 +53,19 @@ is no interpreter to resolve and no bundled program to run.
 
 ## Step 2 - Discover
 
-Sessions live at the on-disk paths in `references/session-formats.md` - one file per session for
-Claude Code, Codex, Pi, and the cursor-agent CLI; a SQLite `store.db` for Cursor IDE. Find the ones
-active in the window and read their metadata. You have a shell, `jq`, `sqlite3`, and `git` - navigate
-however fits; the skill doesn't prescribe the commands. Hold to two things: read cheaply (first/last
-message, title, model, timestamps, signals - not the whole 1-7MB file), and group sessions by repo so
-every worktree lands together (see `references/session-formats.md` - "How project grouping works").
+Discover sessions from the files themselves - they are the source of truth, not any doc. Each
+agent keeps a session store in its dotdir under `$HOME` (`~/.claude`, `~/.codex`, `~/.cursor`,
+`~/.pi`, and any others present). Enumerate the stores, filter to files active in the window by
+date/mtime, and sample a record or two per store to learn its current shape - formats drift with
+weekly CLI releases, so trust what you read over what you remember. You have a shell, `jq`,
+`sqlite3`, and `git` - navigate however fits; the skill doesn't prescribe the commands.
+`references/session-formats.md` lists the known store locations and the traps that fail silently
+(missed sessions, wrong ordering, double counting) - check it before trusting your coverage. Group
+sessions by repo so every worktree lands together (git common-dir; see the reference).
+
+**Coverage check:** an agent that is in use always writes logs. If a store you expect shows zero
+sessions in the window, your discovery is wrong - widen the search before concluding the agent was
+idle. When reality disagrees with the reference, update the reference.
 
 Build a small working inventory - per session: agent, project group, branch/worktree, model, title,
 first/last ask, start/end, duration, turn & tool counts, files_touched, `kind`
@@ -64,13 +76,14 @@ user and offer a wider one.
 ## Step 3 - Deep-read only what needs it
 
 Most threads are clear from the inventory metadata alone. Deep-read **only** sessions that are
-ambiguous or pivotal (cap ~8-10). Prioritize sessions where: `ended_mid_tool` or `had_errors` is
+ambiguous or pivotal - read until every thread's status and why are unambiguous, then stop.
+Prioritize sessions where: `ended_mid_tool` or `had_errors` is
 true; tool counts are high but the outcome is unclear; the most recent session in each active
 project; or two worktrees whose relationship is unclear.
 
-When you deep-read, pull only the conversational spine - user asks and assistant `text` replies -
-and skip `tool_use`/`tool_result` payloads and reasoning/thinking blocks (per-agent record shapes
-in `references/session-formats.md`). For a large window (>~80 sessions), dispatch a subagent per
+When you deep-read, pull the conversational spine - user asks and assistant `text` replies, over
+the session's full extent so the story is accurate - and skip `tool_use`/`tool_result` payloads
+and reasoning/thinking blocks. For a large window (>~80 sessions), dispatch a subagent per
 project group with the relevant paths using your harness's subagent primitive (Claude Code:
 `Agent`; Codex: its spawn/subagent primitive; Pi: `subagent`; Cursor: its task/agent primitive). If
 your harness has no subagent primitive, process groups inline.
@@ -137,6 +150,11 @@ best-effort (they vary by CLI version); the directory + session id are what matt
 
 ## Step 6 - Write the report
 
+Before writing, self-check the Step 5 structure: every thread has both a status and a why; every
+kickoff item has a resume command that `cd`s into the right worktree; every claim traces back to a
+session you actually inventoried or read. Fix gaps before rendering - a briefing with an
+unexplained status has failed at this skill's core job.
+
 Write two files into `~/agent-standup/<date>/` (date = the run day):
 - `report.md` - the briefing in markdown, straight from the Step 5 structure.
 - `report.html` - one self-contained HTML file (inline CSS/JS, no external dependencies) the user
@@ -153,7 +171,7 @@ the saved paths (`report.md` to read, `report.html` to open in a browser). Offer
 to open it.
 
 ## References
-- `references/session-formats.md` - on-disk layout + record schema for each agent, and how to add
-  a new agent. The source of truth for the paths and fields you read in Steps 2-3.
+- `references/session-formats.md` - known store locations per agent and the traps that fail
+  silently. The session files themselves are the source of truth for their format.
 - `references/analysis-rubric.md` - the classification rubric for status/why, worktree
   relationships, and orchestratability. Read during Step 4.
